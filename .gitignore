@@ -1,0 +1,17 @@
+/venv/
+/build/
+/dist/
+/errors/
+**/__pycache__/
+**/photos/
+**/*.sqlite3
+**/*.db
+**/*.ico
+**/*.sql
+**/*.bat
+**/*.cfg
+**/*.exe
+**/*.spec
+**/config.py
+**/config/
+**/logs/

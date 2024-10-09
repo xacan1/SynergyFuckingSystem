@@ -296,7 +296,7 @@ class SynergyParser:
         elif not variants_question:
             error_msg = 'Не удалось получить вопрос!'
             return error_msg
-        
+
         if config.DEBUG:
             print(f'Поисковые фразы:\n{variants_question}')
 
@@ -307,8 +307,9 @@ class SynergyParser:
             return error_msg
 
         self.__logging(f'Тип вопроса: {type_question}')
-        need_skip, need_reload, error_msg = self.__searching_for_answer(
-            variants_question, type_question)
+        need_skip, need_reload, error_msg = self.__searching_for_answer(variants_question,
+                                                                        type_question)
+        self.__logging(f'question_block_id: {self.__question_block_id}')
 
         if need_skip:
             self.__skip_question(error_msg)
@@ -342,9 +343,9 @@ class SynergyParser:
             error_msg = 'Нет подвала на странице'
 
         return error_msg
-    
 
     # Ожидание окончания парарлельного запуска функции __begin_autotest
+
     def __wait_finish_begin_autotest(self) -> None:
         count = 0
         timeout = 10
@@ -354,13 +355,14 @@ class SynergyParser:
             count += 1
 
         if count == timeout:
-            self.__logging(f'Не дождались завершения __begin_autotest за {timeout} сек')
+            self.__logging(
+                f'Не дождались завершения __begin_autotest за {timeout} сек')
             self.__begin_autotest_running = False
-
 
     # делает паузу между ответами, если пауза меньше 10 сек, это не хорошо, а если более 29 сек,
     # то это превышает стандартный таймаут проверки на недогруз страницы 120 сек
     # паузу делаем в половину установленного таймаута, первую половину ждем перед поиском ответа на вопрос, вторую, перед нажатием кнопки отправки
+
     def __pause_for_answer(self) -> None:
         timeout_for_answer = self.__settings.get('timeout_for_answer',
                                                  config.MIN_TIMEOUT_FOR_ANSWER)
@@ -536,12 +538,9 @@ class SynergyParser:
 
         return result
 
-    # Ищет и вводит в поле текстовый ответ
-    def __input_text_answer(self, variants_question: list[str], type_question: str) -> tuple[bool, bool, str]:
-        error_msg = ''
-        need_skip = False
-        need_reload = False
-        result = (need_skip, need_reload, error_msg)
+    def __find_answer_for_textentry(self, variants_question: list[str], type_question: str) -> tuple[str, int]:
+        id_answer = ''
+        id_question = 0
 
         for variant in variants_question:
             answers = self.__find_answer_by_text(variant, type_question)
@@ -553,6 +552,22 @@ class SynergyParser:
 
                 break
 
+        return (id_answer, id_question)
+
+    # Ищет и вводит в поле текстовый ответ
+    def __input_text_answer(self, variants_question: list[str], type_question: str) -> tuple[bool, bool, str]:
+        error_msg = ''
+        need_skip = False
+        need_reload = False
+        result = (need_skip, need_reload, error_msg)
+        id_answer, id_question = self.__find_answer_for_textentry(variants_question,
+                                                                  type_question)
+
+        if not id_answer:
+            self.__question_block_id = 0
+            id_answer, id_question = self.__find_answer_for_textentry(variants_question,
+                                                                      type_question)
+
         if not id_answer:
             error_msg = 'Не найден текстовый ответ'
             need_skip = True
@@ -560,9 +575,10 @@ class SynergyParser:
             self.__count_unfound_answers += 1
             result = (need_skip, need_reload, error_msg)
             return result
-        
+
         if config.DEBUG:
-            print(f'Найденный id ответа: {id_answer}\nНайденный id вопроса: {id_question}')
+            print(
+                f'Найденный id ответа: {id_answer}\nНайденный id вопроса: {id_question}')
 
         # бывает, что в базе для текстового ввода есть больше одного ID, тексты в них одинаковы, потому берем первый
         if ',' in id_answer:
@@ -613,6 +629,23 @@ class SynergyParser:
 
         return result
 
+    def __find_answer_for_choice(self, variants_question: list[str], type_question: str) -> tuple[str, int]:
+        id_answer = ''
+        id_question = 0
+
+        for variant in variants_question:
+            answers = self.__find_answer_by_text(variant, type_question)
+            id_answer, id_question = self.__check_choose_correct_answer(
+                answers)
+
+            if id_answer:
+                if config.DEBUG:
+                    print(f'ОТВЕТ НАШЕЛСЯ ПО ФРАЗЕ:\n{variant}')
+
+                break
+
+        return (id_answer, id_question)
+
     # Заполняет правильный ответ из вариантов
     def __choose_correct_answer(self, variants_question: list[str], type_question: str) -> tuple[bool, bool, str]:
         error_msg = ''
@@ -620,16 +653,13 @@ class SynergyParser:
         need_reload = False
         result = (need_skip, need_reload, error_msg)
         id_answer = 0
+        id_answer, id_question = self.__find_answer_for_choice(variants_question,
+                                                               type_question)
 
-        for variant in variants_question:
-            answers = self.__find_answer_by_text(variant, type_question)
-            id_answer, id_question = self.__check_choose_correct_answer(answers)
-
-            if id_answer:
-                if config.DEBUG:
-                    print(f'ОТВЕТ НАШЕЛСЯ ПО ФРАЗЕ:\n{variant}')
-
-                break
+        if not id_answer:
+            self.__question_block_id = 0
+            id_answer, id_question = self.__find_answer_for_choice(variants_question,
+                                                                   type_question)
 
         if not id_answer:
             error_msg = 'Не найден единственный правильный ответ!'
@@ -640,7 +670,8 @@ class SynergyParser:
             return result
 
         if config.DEBUG:
-            print(f'Найденный id ответа: {id_answer}\nНайденный id вопроса: {id_question}')
+            print(
+                f'Найденный id ответа: {id_answer}\nНайденный id вопроса: {id_question}')
 
         radio_button = self.page.locator(f'input[value="{id_answer}"]')
 
@@ -679,12 +710,9 @@ class SynergyParser:
 
         return result
 
-    # Заполняет несколько правильных ответов на странице
-    def __choose_multiple_answers(self, variants_question: list[str], type_question: str) -> tuple[bool, bool, str]:
-        error_msg = ''
-        need_skip = False
-        need_reload = False
-        result = (need_skip, need_reload, error_msg)
+    def __find_answer_for_choose_multiple(self, variants_question: list[str], type_question: str) -> tuple[str, int]:
+        id_answers = ''
+        id_question = 0
 
         for variant in variants_question:
             answers = self.__find_answer_by_text(variant, type_question)
@@ -696,6 +724,22 @@ class SynergyParser:
 
                 break
 
+        return (id_answers, id_question)
+
+    # Заполняет несколько правильных ответов на странице
+    def __choose_multiple_answers(self, variants_question: list[str], type_question: str) -> tuple[bool, bool, str]:
+        error_msg = ''
+        need_skip = False
+        need_reload = False
+        result = (need_skip, need_reload, error_msg)
+        id_answers, id_question = self.__find_answer_for_choose_multiple(variants_question,
+                                                                         type_question)
+
+        if not id_answers:
+            self.__question_block_id = 0
+            id_answers, id_question = self.__find_answer_for_choose_multiple(variants_question,
+                                                                             type_question)
+
         if not id_answers:
             error_msg = 'Не найден набор правильных ответов!'
             need_skip = True
@@ -703,9 +747,10 @@ class SynergyParser:
             self.__count_unfound_answers += 1
             result = (need_skip, need_reload, error_msg)
             return result
-        
+
         if config.DEBUG:
-            print(f'Найденный id ответа: {id_answers}\nНайденный id вопроса: {id_question}')
+            print(
+                f'Найденный id ответа: {id_answers}\nНайденный id вопроса: {id_question}')
 
         for id_answer in id_answers.split(','):
             radio_button = self.page.locator(f'input[value="{id_answer}"]')
@@ -744,6 +789,26 @@ class SynergyParser:
 
         return result
 
+    def __find_answer_for_order(self, variants_question: list[str], type_question: str, current_id_answers: list) -> tuple[list[str], int]:
+        correct_id_answers = []
+        id_question = 0
+
+        for variant in variants_question:
+            answers = self.__find_answer_by_text(variant, type_question)
+            correct_response, id_question = self.__check_sorting_answers(answers,
+                                                                         current_id_answers)
+            correct_id_answers = correct_response.split(',')
+
+            if correct_id_answers:
+                if config.DEBUG:
+                    print(f'ОТВЕТ НАШЕЛСЯ ПО ФРАЗЕ:\n{variant}')
+                    print(
+                        f'Найденный id ответа: {correct_response}\nНайденный id вопроса: {id_question}')
+
+                break
+
+        return (correct_id_answers, id_question)
+
     # Сначала проверяет корректность текущего порядка ответов и если надо перетаскивает их
     def __sorting_answers(self, variants_question: list[str], type_question: str) -> tuple[bool, bool, str]:
         error_msg = ''
@@ -759,17 +824,15 @@ class SynergyParser:
             current_id_answers.append(test_answer.locator(
                 'input').get_attribute('value'))
 
-        for variant in variants_question:
-            answers = self.__find_answer_by_text(variant, type_question)
-            correct_response, id_question = self.__check_sorting_answers(answers,
-                                                                        current_id_answers)
-            correct_id_answers = correct_response.split(',')
+        correct_id_answers, id_question = self.__find_answer_for_order(variants_question,
+                                                                       type_question,
+                                                                       current_id_answers)
 
-            if correct_id_answers:
-                if config.DEBUG:
-                    print(f'ОТВЕТ НАШЕЛСЯ ПО ФРАЗЕ:\n{variant}')
-
-                break
+        if current_id_answers != correct_id_answers:
+            self.__question_block_id = 0
+            correct_id_answers, id_question = self.__find_answer_for_order(variants_question,
+                                                                           type_question,
+                                                                           current_id_answers)
 
         if current_id_answers != correct_id_answers:
             error_msg = 'Обнаружен неверный порядок ответов!'
@@ -779,9 +842,7 @@ class SynergyParser:
             result = (need_skip, need_reload, error_msg)
             return result
 
-        if config.DEBUG:
-            print(f'Найденный id ответа: {correct_response}\nНайденный id вопроса: {id_question}')
-
+        ######################################################
         # Перетаскивание пока не реализовано в виду ненужности
 
         return result
@@ -811,6 +872,23 @@ class SynergyParser:
 
         return result
 
+    def __find_answer_for_matching(self, variants_question: list[str], type_question: str) -> tuple[str, int]:
+        correct_response = ''
+        id_question = 0
+
+        for variant in variants_question:
+            answers = self.__find_answer_by_text(variant, type_question)
+            correct_response, id_question = self.__check_matching_answers(
+                answers)
+
+            if correct_response:
+                if config.DEBUG:
+                    print(f'ОТВЕТ НАШЕЛСЯ ПО ФРАЗЕ:\n{variant}')
+
+                break
+
+        return (correct_response, id_question)
+
     # перетаскивает блоки для соответствия
     def __matching_answers(self, variants_question: list[str], type_question: str) -> tuple[bool, bool, str]:
         error_msg = ''
@@ -825,15 +903,13 @@ class SynergyParser:
         pair_left_right = [(left_side[i], right_side_empty[i])
                            for i in range(0, len(left_side))]
 
-        for variant in variants_question:
-            answers = self.__find_answer_by_text(variant, type_question)
-            correct_response, id_question = self.__check_matching_answers(answers)
+        correct_response, id_question = self.__find_answer_for_matching(variants_question,
+                                                                        type_question)
 
-            if correct_response:
-                if config.DEBUG:
-                    print(f'ОТВЕТ НАШЕЛСЯ ПО ФРАЗЕ:\n{variant}')
-
-                break
+        if not correct_response:
+            self.__question_block_id = 0
+            correct_response, id_question = self.__find_answer_for_matching(variants_question,
+                                                                            type_question)
 
         if not correct_response:
             error_msg = 'Не найден ответ для сопоставления'
@@ -842,9 +918,10 @@ class SynergyParser:
             self.__count_unfound_answers += 1
             result = (need_skip, need_reload, error_msg)
             return result
-        
+
         if config.DEBUG:
-            print(f'Найденный id ответа: {correct_response}\nНайденный id вопроса: {id_question}')
+            print(
+                f'Найденный id ответа: {correct_response}\nНайденный id вопроса: {id_question}')
 
         pair_id_answers = correct_response.split(',')
 
@@ -888,7 +965,8 @@ class SynergyParser:
                 id_question = answer[1]
                 found = True if pair_id_answers else False
                 # разбирает ответ вида: '6Oj9|8GZi;Bqng;eO5U,d1jK|2SBf;B2xf;jf6o,wx9r|ZqR2;eUy3;gmkq;iNmW'
-                id_answers = service.RE_MATCHING_MULTIPLE.split(pair_id_answers)
+                id_answers = service.RE_MATCHING_MULTIPLE.split(
+                    pair_id_answers)
 
                 for id_answer in id_answers:
                     if self.page.locator(f'li[data="{id_answer}"]').count() == 0:
@@ -901,6 +979,23 @@ class SynergyParser:
                     break
 
         return result
+
+    def __find_answer_for_matchmultiple(self, variants_question: list[str], type_question: str) -> tuple[str, int]:
+        correct_response = ''
+        id_question = 0
+
+        for variant in variants_question:
+            answers = self.__find_answer_by_text(variant, type_question)
+            correct_response, id_question = self.__check_matching_multiple_answers(
+                answers)
+
+            if correct_response:
+                if config.DEBUG:
+                    print(f'ОТВЕТ НАШЕЛСЯ ПО ФРАЗЕ:\n{variant}')
+
+                break
+
+        return (correct_response, id_question)
 
     # Перетаскивает блоки по соответствий как выше, только сложнее, одному блоку соответствует несколько других
     def __matching_multiple_answers(self, variants_question: list[str], type_question: str) -> tuple[bool, bool, str]:
@@ -917,15 +1012,13 @@ class SynergyParser:
         pair_left_right = [(left_side[i], right_side_empty[i])
                            for i in range(0, len(left_side))]
 
-        for variant in variants_question:
-            answers = self.__find_answer_by_text(variant, type_question)
-            correct_response, id_question = self.__check_matching_multiple_answers(answers)
+        correct_response, id_question = self.__find_answer_for_matchmultiple(variants_question,
+                                                                             type_question)
 
-            if correct_response:
-                if config.DEBUG:
-                    print(f'ОТВЕТ НАШЕЛСЯ ПО ФРАЗЕ:\n{variant}')
-
-                break
+        if not correct_response:
+            self.__question_block_id = 0
+            correct_response, id_question = self.__find_answer_for_matchmultiple(variants_question,
+                                                                                 type_question)
 
         if not correct_response:
             error_msg = 'Не найден ответ для множественного сопоставления'
@@ -936,7 +1029,8 @@ class SynergyParser:
             return result
 
         if config.DEBUG:
-            print(f'Найденный id ответа: {correct_response}\nНайденный id вопроса: {id_question}')
+            print(
+                f'Найденный id ответа: {correct_response}\nНайденный id вопроса: {id_question}')
 
         correct_id_answers = correct_response.split(',')
 
@@ -974,7 +1068,7 @@ class SynergyParser:
                     break
 
         return result
-    
+
     def __find_answer_by_text(self, text_variant: str, type_question: str) -> list[tuple]:
         answers = []
 
@@ -1058,7 +1152,6 @@ class SynergyParser:
             # Вторым в списке вопросов пусть будет чистый текст вопроса без тегов разделенный на фразы
             # теперь заменю мнемоники HTML на их коды
             clear_only_text = service.replace_mnemonics_html(only_text)
-            # clear_only_text = clear_only_text.replace('\n', '').replace('&gt;', '>').replace('&lt;', '<')
             clear_only_text = clear_only_text.replace('\n', '')
 
             # тут я разобью чистый текст на фразы по запятым и неразрывному пробелу
@@ -1066,14 +1159,17 @@ class SynergyParser:
             variants_question.extend(phrases)
 
             # теперь тоже самое сделаю для сырого текста вопроса с тегами
-            clear_raw_text_question = service.replace_mnemonics_html(raw_text_question)
+            clear_raw_text_question = service.replace_mnemonics_html(
+                raw_text_question)
             clear_raw_text_question = clear_raw_text_question.replace('\n', '')
-            phrases = service.get_phrsases_for_raw_question(clear_raw_text_question)
+            phrases = service.get_phrsases_for_raw_question(
+                clear_raw_text_question)
             variants_question.extend(phrases)
 
             # и совсем уже отчаянный шаг, поиск по словам входящим в чистый текст, не короче 5 букв
             # эти слова добавлю в конец списка, они будут проверяться в последнюю очередь
-            words = [word for word in clear_only_text.split(' ') if len(word) > 4]
+            words = [word for word in clear_only_text.split(
+                ' ') if len(word) > 4]
 
             if words:
                 variants_question.extend(words)
@@ -1144,6 +1240,7 @@ class SynergyParser:
             return error_msg
 
         submit_button = self.page.locator('input[name=submit_send]')
+        # submit_button = self.page.locator('a[name=submit_send]')
 
         try:
             # submit_button.click(delay=200)
@@ -1292,7 +1389,7 @@ class SynergyParser:
             f.close()
 
         return error_msg
-     
+
     def __delete_wrong_symbols(self, file_name: str) -> str:
         if file_name[-1] == '.' or file_name[-1] == ' ':
             file_name[-1] = ''

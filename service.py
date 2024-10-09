@@ -5,7 +5,7 @@ RE_MATCHING = re.compile('[|,]')
 RE_MATCHING_MULTIPLE = re.compile('[|;,]')
 RE_LATINIAN = re.compile(r'[A-Za-z]')
 RE_GET_LATINIAN_TEXT = re.compile(r'[^А-Яа-яЁё\s]+')
-RE_PATTERN_PHRASES = re.compile(r'&nbsp;|\xa0|,') # тут всякий мусор по которому было бы хорошо поделить текст на фразы(неразрывный пробел, запятая)
+RE_PATTERN_PHRASES = re.compile(r'&hellip;|&nbsp;|\xa0|,') # тут всякий мусор по которому было бы хорошо поделить текст на фразы(троеточие, неразрывный пробел, запятая)
 RE_RUSSIAN = re.compile(r'^[а-яА-ЯЁё]')
 
 
@@ -48,7 +48,7 @@ def get_phrsases_for_only_text(text_question: str) -> list[str]:
     # разобью текст на фразы по запятым и неразрывному пробелу
     phrases = RE_PATTERN_PHRASES.split(text_question)
     # удалю все фразы короче 5 символов
-    phrases = [phrase for phrase in phrases if len(phrase) > 4]
+    phrases = [phrase.strip() for phrase in phrases if len(phrase) > 4]
     phrases = sorted(phrases, key=len, reverse=True)
 
     return phrases

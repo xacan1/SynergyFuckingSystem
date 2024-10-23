@@ -18,6 +18,7 @@ MATCHING_QUESTION_TYPES = {
     'Текcтовый ответ': 'textEntry',
     'Сортировка': 'order',
     'Сопоставление': 'match',
+    'Сложная сортировка': 'sequence',
 }
 
 
@@ -483,6 +484,9 @@ class SynergyParser:
                 variants_question, type_question)
         elif type_question == 'matchMultiple':
             need_skip, need_reload, error_msg = self.__matching_multiple_answers(
+                variants_question, type_question)
+        elif type_question == 'sequence':
+            need_skip, need_reload, error_msg = self.__sequence_answers(
                 variants_question, type_question)
         elif type_question == '':
             # self.__logging('Тип вопроса неопределен!')
@@ -953,6 +957,97 @@ class SynergyParser:
                         return result
 
                     break
+
+        return result
+
+    # Проверяет правильность ответов и выбирает подходящий, когда их несколько в БД на один текст вопроса
+    def __check_sequence_answers(self, answers: list[str]) -> tuple[str, int]:
+        result = ('', 0)
+
+        if len(answers) > 0:
+            for answer in answers:
+                id_answers = answer[0]
+                id_question = answer[1]
+                found = True if id_answers else False
+
+                for id_answer in id_answers.split(','):
+                    if self.page.locator(f'li[data="{id_answer}"]').count() == 0:
+                        found = False
+                        break
+
+                if found:
+                    self.__question_block_id = answer[2]
+                    result = (id_answers, id_question)
+                    break
+
+        return result
+
+    def __find_answer_for_sequence(self, variants_question: list[str], type_question: str) -> tuple[str, int]:
+        id_answers = ''
+        id_question = 0
+
+        for variant in variants_question:
+            answers = self.__find_answer_by_text(variant, type_question)
+            id_answers, id_question = self.__check_sequence_answers(answers)
+
+            if id_answers:
+                if config.DEBUG:
+                    print(f'ОТВЕТ НАШЕЛСЯ ПО ФРАЗЕ:\n{variant}')
+
+                break
+
+        return (id_answers, id_question)
+
+    def __sequence_answers(self, variants_question: list[str], type_question: str) -> tuple[bool, bool, str]:
+        error_msg = ''
+        need_skip = False
+        need_reload = False
+        result = (need_skip, need_reload, error_msg)
+
+        correct_response, id_question = self.__find_answer_for_sequence(variants_question,
+                                                                        type_question)
+
+        if not correct_response:
+            self.__question_block_id = 0
+            correct_response, id_question = self.__find_answer_for_sequence(variants_question,
+                                                                            type_question)
+
+        if not correct_response:
+            error_msg = 'Не найден ответ для сложной сортировки'
+            need_skip = True
+            need_reload = False
+            self.__count_unfound_answers += 1
+            result = (need_skip, need_reload, error_msg)
+            return result
+
+        if config.DEBUG:
+            print(
+                f'Найденный id ответа: {correct_response}\nНайденный id вопроса: {id_question}')
+
+        id_answers = correct_response.split(',')
+        block_answers = self.page.locator('ul[id="sequence_answers"]')
+
+        for id_answer in id_answers:
+            block_answer = self.page.locator(f'li[data="{id_answer}"]')
+
+            try:
+                block_answer.drag_to(block_answers)
+            except TimeoutError:
+                error_msg = 'Ошибка при перетаскивании блока'
+                need_skip = True
+                need_reload = False
+                self.__count_unfound_answers += 1
+                result = (need_skip, need_reload, error_msg)
+                return result
+            except Error:
+                error_msg = 'Ошибка при перетаскивании блока'
+                need_skip = True
+                self.__count_unfound_answers += 1
+                need_reload = False
+                result = (need_skip, need_reload, error_msg)
+                return result
+
+            break
 
         return result
 

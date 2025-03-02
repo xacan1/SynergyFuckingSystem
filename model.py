@@ -1,4 +1,5 @@
 import sqlite3 as sq
+from datetime import datetime
 import config
 
 
@@ -13,6 +14,34 @@ def create_proxies_db() -> None:
         user TEXT NOT NULL,
         password TEXT NOT NULL,
         used INTEGER DEFAULT 0)
+        """)
+
+
+def create_db_correct_answers() -> None:
+    with sq.connect(config.DB_CORRECT_ANSWERS_FILE_NAME) as con:
+        cur = con.cursor()
+        cur.executescript("""
+        CREATE TABLE IF NOT EXISTS correct_answers(
+        questionId INTEGER PRIMARY KEY AUTOINCREMENT,
+        questionBlock TEXT NOT NULL,
+        question TEXT NOT NULL,
+        questionType TEXT NOT NULL,
+        correctResponse TEXT NOT NULL,
+        created TEXT NOT NULL)
+        """)
+
+
+def create_db_incorrect_answers() -> None:
+    with sq.connect(config.DB_INCORRECT_ANSWERS_FILE_NAME) as con:
+        cur = con.cursor()
+        cur.executescript("""
+        CREATE TABLE IF NOT EXISTS incorrect_answers(
+        questionId INTEGER PRIMARY KEY AUTOINCREMENT,
+        questionBlock TEXT NOT NULL,
+        question TEXT NOT NULL,
+        questionType TEXT NOT NULL,
+        correctResponse TEXT NOT NULL,
+        created TEXT NOT NULL)
         """)
 
 
@@ -183,3 +212,20 @@ def get_text_answer(identifier: str, id_question: int = 0) -> str:
             text_answer = row[0]
 
     return text_answer
+
+
+# Запись ответа от AI в специальную базу ответов
+def save_correct_answer(question_answer: dict) -> None:
+    with sq.connect(config.DB_CORRECT_ANSWERS_FILE_NAME) as con:
+        parameters = (question_answer.get('questionBlock'),
+                      question_answer.get('question'),
+                      question_answer.get('questionType'),
+                      question_answer.get('correctResponse'),
+                      question_answer.get('created'),
+                      )
+        cur = con.cursor()
+        cur.execute("""
+        INSERT INTO correct_answers (questionBlock, question, questionType, correctResponse, created) 
+        VALUES (?,?,?,?,?)
+        """, parameters)
+        con.commit()

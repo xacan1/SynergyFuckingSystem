@@ -3,12 +3,14 @@ from fake_useragent import UserAgent
 from pathlib import Path
 from datetime import datetime
 from ctypes import wintypes, windll, create_unicode_buffer, byref
+import json
 import keyboard
 import winreg
 import model
 import config
 import time
 import service
+import ai_search
 
 
 # словарь-соответствие между обозначанием типа ответов на странице и в БД questionType
@@ -57,6 +59,8 @@ class SynergyParser:
         self.__set_used_proxy()
         self.__set_hotkey()
         self.__begin_autotest_running = False
+        self.__use_ai = self.__settings.get('use_ai', 0)
+        self.__questions_answers = []
 
     def __set_hotkey(self) -> None:
         if self.__settings.get('use_hotkey', 0):
@@ -309,7 +313,8 @@ class SynergyParser:
 
         self.__logging(f'Тип вопроса: {type_question}')
         need_skip, need_reload, error_msg = self.__searching_for_answer(variants_question,
-                                                                        type_question)
+                                                                        type_question,
+                                                                        raw_text_question)
         self.__logging(f'question_block_id: {self.__question_block_id}')
 
         if need_skip:
@@ -317,6 +322,8 @@ class SynergyParser:
             return ''
         elif need_reload:
             return error_msg
+        # elif error_msg and self.__use_ai:
+        #     ai_search.searching_for_answer()
 
         self.__pause_for_answer()
         error_msg = self.__send_answer()
@@ -382,11 +389,19 @@ class SynergyParser:
         result = (test_info, error_msg)
 
         try:
+            discipline = self.page.locator(
+                'h1.player-discipline').text_content().strip()
+
+            if not discipline:
+                error_msg = 'Не найдено наименование предмета'
+                result = (test_info, error_msg)
+                return result
+
+            test_info['discipline'] = discipline
             self.page.locator('span.player-questions').wait_for()
             item = self.page.locator('span.player-questions').all()
 
             if len(item) == 0:
-                # self.__reload('Не найден номер текущего вопроса!')
                 error_msg = 'Не найден номер текущего вопроса!'
                 result = (test_info, error_msg)
                 return result
@@ -399,7 +414,6 @@ class SynergyParser:
             questions_count = self.page.locator('span.test-sub-question').all()
 
             if len(questions_count) == 0:
-                # self.__reload('Не найдено количество вопросов!')
                 error_msg = 'Не найдено количество вопросов!'
                 result = (test_info, error_msg)
                 return result
@@ -413,7 +427,6 @@ class SynergyParser:
             questions_unanswered = self.page.locator('span.skipped').all()
 
             if len(questions_unanswered) == 0:
-                # self.__reload('Не найдено число пропущенных вопросов!')
                 error_msg = 'Не найдено число пропущенных вопросов!'
                 result = (test_info, error_msg)
                 return result
@@ -462,32 +475,39 @@ class SynergyParser:
 
     # Выбирает и запускает функцию для ответа на вопрос определенного типа в зависимости от типа вопроса:
     # например выбор одного варианта или упорядочивание ответов или соответствие блоков
-    def __searching_for_answer(self, variants_question: list[str], type_question: str) -> tuple[bool, bool, str]:
+    def __searching_for_answer(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str]:
         need_skip = False
         need_reload = False
         error_msg = ''
 
         if type_question == 'textEntry':
-            need_skip, need_reload, error_msg = self.__input_text_answer(
-                variants_question, type_question)
+            need_skip, need_reload, error_msg = self.__input_text_answer(variants_question,
+                                                                         type_question,
+                                                                         raw_text_question)
         elif type_question == 'choice':
-            need_skip, need_reload, error_msg = self.__choose_correct_answer(
-                variants_question, type_question)
+            need_skip, need_reload, error_msg = self.__choose_correct_answer(variants_question,
+                                                                             type_question,
+                                                                             raw_text_question)
         elif type_question == 'choiceMultiple':
-            need_skip, need_reload, error_msg = self.__choose_multiple_answers(
-                variants_question, type_question)
+            need_skip, need_reload, error_msg = self.__choose_multiple_answers(variants_question,
+                                                                               type_question,
+                                                                               raw_text_question)
         elif type_question == 'order':
-            need_skip, need_reload, error_msg = self.__sorting_answers(
-                variants_question, type_question)
+            need_skip, need_reload, error_msg = self.__sorting_answers(variants_question,
+                                                                       type_question,
+                                                                       raw_text_question)
         elif type_question == 'match':
-            need_skip, need_reload, error_msg = self.__matching_answers(
-                variants_question, type_question)
+            need_skip, need_reload, error_msg = self.__matching_answers(variants_question,
+                                                                        type_question,
+                                                                        raw_text_question)
         elif type_question == 'matchMultiple':
-            need_skip, need_reload, error_msg = self.__matching_multiple_answers(
-                variants_question, type_question)
+            need_skip, need_reload, error_msg = self.__matching_multiple_answers(variants_question,
+                                                                                 type_question,
+                                                                                 raw_text_question)
         elif type_question == 'sequence':
-            need_skip, need_reload, error_msg = self.__sequence_answers(
-                variants_question, type_question)
+            need_skip, need_reload, error_msg = self.__sequence_answers(variants_question,
+                                                                        type_question,
+                                                                        raw_text_question)
         elif type_question == '':
             # self.__logging('Тип вопроса неопределен!')
             need_reload = True
@@ -559,7 +579,7 @@ class SynergyParser:
         return (id_answer, id_question)
 
     # Ищет и вводит в поле текстовый ответ
-    def __input_text_answer(self, variants_question: list[str], type_question: str) -> tuple[bool, bool, str]:
+    def __input_text_answer(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str]:
         error_msg = ''
         need_skip = False
         need_reload = False
@@ -571,24 +591,41 @@ class SynergyParser:
             self.__question_block_id = 0
             id_answer, id_question = self.__find_answer_for_textentry(variants_question,
                                                                       type_question)
-
-        if not id_answer:
-            error_msg = 'Не найден текстовый ответ'
+        id_answer = 0
+        if not id_answer and not self.__use_ai:
+            error_msg = 'Не найден текстовый ответ при выключенном поиске AI'
             need_skip = True
             need_reload = False
             self.__count_unfound_answers += 1
             result = (need_skip, need_reload, error_msg)
             return result
+        elif id_answer and ',' in id_answer:
+            # бывает, что в базе для текстового ввода есть больше одного ID, тексты в них одинаковы, потому берем первый
+            id_answer = id_answer.split(',')[0]
+            text_answer = model.get_text_answer(id_answer, id_question)
+        elif id_answer:
+            text_answer = model.get_text_answer(id_answer, id_question)
+        elif not id_answer and self.__use_ai:
+            # раз не нашли ответ, но AI включен, то получим текст вопроса из HTML траницы с тегами в сыром виде
+            # ai_answer = ai_search.ai_search('Ты YandexGPT 5 или YandexGPT 4?')
+            text_answer = ai_search.ai_search(
+                raw_text_question, 'Ответь без знаков препинания')
+            question_answer = {
+                'questionBlock': self.__test_info['discipline'],
+                'question': raw_text_question,
+                'questionType': type_question,
+                'correctResponse': text_answer,
+                'created': datetime.now().date(),
+            }
+
+            self.__questions_answers.append(question_answer)
+
+            if config.DEBUG:
+                print(f'Ответ AI:\n{text_answer}')
 
         if config.DEBUG:
             print(
                 f'Найденный id ответа: {id_answer}\nНайденный id вопроса: {id_question}')
-
-        # бывает, что в базе для текстового ввода есть больше одного ID, тексты в них одинаковы, потому берем первый
-        if ',' in id_answer:
-            id_answer = id_answer.split(',')[0]
-
-        text_answer = model.get_text_answer(id_answer, id_question)
 
         if not text_answer:
             error_msg = 'Не найден текстовый ответ, хотя ID ответа было получено'
@@ -650,13 +687,14 @@ class SynergyParser:
 
         return (id_answer, id_question)
 
-    # Заполняет правильный ответ из вариантов
-    def __choose_correct_answer(self, variants_question: list[str], type_question: str) -> tuple[bool, bool, str]:
+    # Выбирает правильный ответ из вариантов
+    def __choose_correct_answer(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str]:
         error_msg = ''
         need_skip = False
         need_reload = False
         result = (need_skip, need_reload, error_msg)
-        id_answer = 0
+        id_answer = ''
+        id_question = 0
         id_answer, id_question = self.__find_answer_for_choice(variants_question,
                                                                type_question)
 
@@ -665,13 +703,41 @@ class SynergyParser:
             id_answer, id_question = self.__find_answer_for_choice(variants_question,
                                                                    type_question)
 
-        if not id_answer:
+        if not id_answer and not self.__use_ai:
             error_msg = 'Не найден единственный правильный ответ!'
             need_skip = True
             need_reload = False
             self.__count_unfound_answers += 1
             result = (need_skip, need_reload, error_msg)
             return result
+        elif not id_answer and self.__use_ai:
+            raw_text_question = ai_search.get_text_answer(self.page)
+            variants_answers = ai_search.get_variants_answers_for_choice(
+                self.page, False)
+            ai_answer = ai_search.ai_search(
+                f'{raw_text_question} варианты ответа: {variants_answers} Выбери один правильный ключ из структуры JSON. Ответ напиши в виде строки.')
+
+            if config.DEBUG:
+                print(f'Ответ AI:\n{ai_answer}')
+
+            if not ai_answer:
+                self.__count_unfound_answers += 1
+                need_skip = True
+                need_reload = False
+                error_msg = 'Ответ не найден AI'
+                result = (need_skip, need_reload, error_msg)
+                return result
+            
+            id_answer = ai_answer.strip()
+            question_answer = {
+                'questionBlock': self.__test_info['discipline'],
+                'question': raw_text_question,
+                'questionType': type_question,
+                'correctResponse': id_answer,
+                'created': datetime.now().date(),
+            }
+
+            self.__questions_answers.append(question_answer)
 
         if config.DEBUG:
             print(
@@ -731,11 +797,13 @@ class SynergyParser:
         return (id_answers, id_question)
 
     # Заполняет несколько правильных ответов на странице
-    def __choose_multiple_answers(self, variants_question: list[str], type_question: str) -> tuple[bool, bool, str]:
+    def __choose_multiple_answers(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str]:
         error_msg = ''
         need_skip = False
         need_reload = False
         result = (need_skip, need_reload, error_msg)
+        id_answers = ''
+        id_question = 0
         id_answers, id_question = self.__find_answer_for_choose_multiple(variants_question,
                                                                          type_question)
 
@@ -744,17 +812,46 @@ class SynergyParser:
             id_answers, id_question = self.__find_answer_for_choose_multiple(variants_question,
                                                                              type_question)
 
-        if not id_answers:
-            error_msg = 'Не найден набор правильных ответов!'
+        if not id_answers and not self.__use_ai:
+            error_msg = 'Не найден набор правильных ответов при выключенном AI!'
             need_skip = True
             need_reload = False
             self.__count_unfound_answers += 1
             result = (need_skip, need_reload, error_msg)
             return result
+        elif not id_answers and self.__use_ai:
+            raw_text_question = ai_search.get_text_answer(self.page)
+            variants_answers = ai_search.get_variants_answers_for_choice(
+                  self.page, True)
+            ai_answer = ai_search.ai_search(
+                   f'{raw_text_question} варианты ответа: {variants_answers} Выбери несколько правильных ключей из структуры JSON. Перечисли ключи через запятую в одной строке.')
+
+            if config.DEBUG:
+                print(f'Ответ AI:\n{ai_answer}')
+
+            if not ai_answer:
+                self.__count_unfound_answers += 1
+                need_skip = True
+                need_reload = False
+                error_msg = 'Ответ не найден AI'
+                result = (need_skip, need_reload, error_msg)
+                return result
+            
+            id_answers = ai_answer.replace(' ', '')
+            question_answer = {
+                'questionBlock': self.__test_info['discipline'],
+                'question': raw_text_question,
+                'questionType': type_question,
+                'correctResponse': id_answers,
+                'created': datetime.now().date(),
+            }
+
+            self.__questions_answers.append(question_answer)
+            
 
         if config.DEBUG:
             print(
-                f'Найденный id ответа: {id_answers}\nНайденный id вопроса: {id_question}')
+                f'Найденные id для ответа: {id_answers}\nНайденный id вопроса: {id_question}')
 
         for id_answer in id_answers.split(','):
             radio_button = self.page.locator(f'input[value="{id_answer}"]')
@@ -814,11 +911,13 @@ class SynergyParser:
         return (correct_id_answers, id_question)
 
     # Сначала проверяет корректность текущего порядка ответов и если надо перетаскивает их
-    def __sorting_answers(self, variants_question: list[str], type_question: str) -> tuple[bool, bool, str]:
+    def __sorting_answers(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str]:
         error_msg = ''
         need_skip = False
         need_reload = False
         result = (need_skip, need_reload, error_msg)
+
+        # return result # пока что просто нажмем Ответить, все равно сортировка всегда верна
 
         # получим все блоки ответов на странице в их текущем порядке
         current_id_answers = []
@@ -838,13 +937,44 @@ class SynergyParser:
                                                                            type_question,
                                                                            current_id_answers)
 
-        if current_id_answers != correct_id_answers:
-            error_msg = 'Обнаружен неверный порядок ответов!'
+        # в любом случае считаем порядок по умолчанию верным для сортировки
+        correct_id_answers = current_id_answers
+
+        if current_id_answers != correct_id_answers and not self.__use_ai:
+            error_msg = 'Обнаружен неверный порядок ответов! При выключенном AI'
             need_skip = True
             need_reload = False
             self.__count_unfound_answers += 1
             result = (need_skip, need_reload, error_msg)
             return result
+        elif current_id_answers != correct_id_answers and self.__use_ai:
+            # раз не нашли ответ, но AI включен, то получим текст вопроса из HTML траницы с тегами в сыром виде, ведь AI все равно что разбирать
+            question, error_msg = self.__get_question_html(type_question)
+            ai_answer = ai_search.ai_search(question,
+                                            f'Ответь на вопрос. Напиши верный порядок атрибутов value тега input через запятую без пробелов')
+
+            if config.DEBUG:
+                print(f'Ответ AI:\n{ai_answer}')
+
+            question_answer = {
+                'questionBlock': self.__get_name_discipline(),
+                'question': raw_text_question,
+                'questionType': type_question,
+                'correctResponse': ','.join(correct_id_answers),
+                'created': datetime.now().date(),
+            }
+            self.__questions_answers.append(question_answer)
+
+            # correct_id_answers = ai_answer.split(',')
+
+            # if current_id_answers != correct_id_answers:
+            #     error_msg = 'Обнаружен неверный порядок ответов! При включенном AI'
+            #     need_skip = True
+            #     need_reload = False
+            #     self.__count_unfound_answers += 1
+            #     result = (need_skip, need_reload, error_msg)
+
+            # На самом деле робот далее просто жмет Ответить без проверки. Скорее всего порядок верен изначально
 
         ######################################################
         # Перетаскивание пока не реализовано в виду ненужности
@@ -853,16 +983,17 @@ class SynergyParser:
 
     # Находит правильный набор ответов, если их несколько
     def __check_matching_answers(self, answers: list) -> tuple[str, int]:
-        result = ('', 0)
+        correct_response = ''
+        result = (correct_response, 0)
 
         if len(answers) > 0:
             for answer in answers:
-                pair_id_answers = answer[0]
+                correct_response = answer[0]
                 id_question = answer[1]
-                found = True if pair_id_answers else False
+                found = True if correct_response else False
 
                 # разбирает ответ вида: L4vT|8Z6X,xnGo|voCq,Lsri|JtPR
-                id_answers = service.RE_MATCHING.split(pair_id_answers)
+                id_answers = service.RE_MATCHING.split(correct_response)
 
                 for id_answer in id_answers:
                     if self.page.locator(f'div[id="{id_answer}"]').count() == 0:
@@ -871,7 +1002,7 @@ class SynergyParser:
 
                 if found:
                     self.__question_block_id = answer[2]
-                    result = (pair_id_answers, id_question)
+                    result = (correct_response, id_question)
                     break
 
         return result
@@ -894,7 +1025,7 @@ class SynergyParser:
         return (correct_response, id_question)
 
     # перетаскивает блоки для соответствия
-    def __matching_answers(self, variants_question: list[str], type_question: str) -> tuple[bool, bool, str]:
+    def __matching_answers(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str]:
         error_msg = ''
         need_skip = False
         need_reload = False
@@ -915,17 +1046,55 @@ class SynergyParser:
             correct_response, id_question = self.__find_answer_for_matching(variants_question,
                                                                             type_question)
 
-        if not correct_response:
-            error_msg = 'Не найден ответ для сопоставления'
-            need_skip = True
-            need_reload = False
-            self.__count_unfound_answers += 1
-            result = (need_skip, need_reload, error_msg)
-            return result
+        # Соберем ответ по умолчанию в порядке букв как на странице(скорее всего это верный порядок) ***
+        default_response = ''
+        bottom_side = self.page.locator('div.docBottom div.ui-draggable').all()
+        count_bottom_side = len(bottom_side)
+
+        for i in range(0, count_bottom_side):
+            id_left = left_side[i].get_attribute('id')
+            id_bottom = bottom_side[i].get_attribute('id')
+            default_response += f'{id_left}|{id_bottom},'
+        # **********************************************************************************************
+
+        if not correct_response and not self.__use_ai:
+            self.__logging(
+                'Не найден ответ для сопоставления при выключенном AI. Будет применен ответ по умолчанию.')
+            correct_response = default_response
+        elif not correct_response and self.__use_ai:
+            # раз не нашли ответ, но AI включен, то получим текст вопроса из HTML страницы с тегами в сыром виде, ведь AI все равно что разбирать
+            question, error_msg = self.__get_question_html(type_question)
+            ai_answer = ai_search.ai_search(question,
+                                            f'Сопоставь id ответов из html в формате JSON, где ключ структуры: div id левой части, а значение структуры: div id правой части')
+
+            if config.DEBUG:
+                print(f'Ответ AI:\n{ai_answer}')
+
+            json_answer, need_skip, need_reload, error_msg = service.load_json(
+                ai_answer)
+
+            if error_msg or not service.validate_dict_answer(json_answer):
+                self.__logging(
+                    f'{error_msg} Будет применен ответ по умолчанию.')
+                correct_response = default_response
+            else:
+                for key, value in json_answer.items():
+                    correct_response += f'{key}|{value},'
+
+                correct_response = correct_response[0:-1]
+
+        question_answer = {
+            'questionBlock': self.__get_name_discipline(),
+            'question': raw_text_question,
+            'questionType': type_question,
+            'correctResponse': correct_response,
+            'created': datetime.now().date(),
+        }
+        self.__questions_answers.append(question_answer)
 
         if config.DEBUG:
             print(
-                f'Найденный id ответа: {correct_response}\nНайденный id вопроса: {id_question}')
+                f'Найденный ответ: {correct_response}\nНайденный id вопроса: {id_question}')
 
         pair_id_answers = correct_response.split(',')
 
@@ -998,7 +1167,8 @@ class SynergyParser:
 
         return (id_answers, id_question)
 
-    def __sequence_answers(self, variants_question: list[str], type_question: str) -> tuple[bool, bool, str]:
+    # перетаскивает блоки в сложной сортировке
+    def __sequence_answers(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str]:
         error_msg = ''
         need_skip = False
         need_reload = False
@@ -1012,17 +1182,36 @@ class SynergyParser:
             correct_response, id_question = self.__find_answer_for_sequence(variants_question,
                                                                             type_question)
 
-        if not correct_response:
-            error_msg = 'Не найден ответ для сложной сортировки'
+        if not correct_response and not self.__use_ai:
+            error_msg = 'Не найден ответ для сложной сортировки. При выключенном AI'
             need_skip = True
             need_reload = False
             self.__count_unfound_answers += 1
             result = (need_skip, need_reload, error_msg)
             return result
+        elif not correct_response and self.__use_ai:
+            # раз не нашли ответ, но AI включен, то получим текст вопроса из HTML страницы с тегами в сыром виде, ведь AI все равно что разбирать
+            question, error_msg = self.__get_question_html(type_question)
+            ai_answer = ai_search.ai_search(question,
+                                            f'Перечисли верный порядок атрибутов value html в строке через запятую')
+
+            if config.DEBUG:
+                print(f'Ответ AI:\n{ai_answer}')
+
+            question_answer = {
+                'questionBlock': self.__get_name_discipline(),
+                'question': raw_text_question,
+                'questionType': type_question,
+                'correctResponse': ai_answer,
+                'created': datetime.now().date(),
+            }
+            self.__questions_answers.append(question_answer)
+
+            correct_response = ai_answer
 
         if config.DEBUG:
             print(
-                f'Найденный id ответа: {correct_response}\nНайденный id вопроса: {id_question}')
+                f'Найденный ответ: {correct_response}\nНайденный id вопроса: {id_question}')
 
         id_answers = correct_response.split(',')
         block_answers = self.page.locator('ul[id="sequence_answers"]')
@@ -1093,7 +1282,7 @@ class SynergyParser:
         return (correct_response, id_question)
 
     # Перетаскивает блоки по соответствий как выше, только сложнее, одному блоку соответствует несколько других
-    def __matching_multiple_answers(self, variants_question: list[str], type_question: str) -> tuple[bool, bool, str]:
+    def __matching_multiple_answers(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str]:
         error_msg = ''
         need_skip = False
         need_reload = False
@@ -1115,17 +1304,64 @@ class SynergyParser:
             correct_response, id_question = self.__find_answer_for_matchmultiple(variants_question,
                                                                                  type_question)
 
-        if not correct_response:
-            error_msg = 'Не найден ответ для множественного сопоставления'
-            need_skip = True
-            need_reload = False
-            self.__count_unfound_answers += 1
-            result = (need_skip, need_reload, error_msg)
-            return result
+        # Соберем ответ по умолчанию в порядке букв как на странице(скорее всего это верный порядок) ***
+        bottom_side = self.page.locator('#answerChoises li').all()
+        count_bottom_side = len(bottom_side)
+        count_left_side = len(left_side)
+        first_lap = True
+        ids_left = []
+        li = 0
+
+        for bi in range(0, count_bottom_side):
+            id_left = left_side[li].get_attribute('data')
+            id_bottom = bottom_side[bi].get_attribute('data')
+
+            if first_lap:
+                ids_left.append(f'{id_left}|{id_bottom}')
+            else:
+                ids_left[li] += f';{id_bottom}'
+
+            li += 1
+
+            if li == count_left_side:
+                first_lap = False
+                li = 0
+
+        default_response = ','.join(ids_left)
+        # 6Oj9|8GZi;Bqng;eO5U,d1jK|2SBf;B2xf;jf6o,wx9r|ZqR2;eUy3;gmkq;iNmW
+        # **********************************************************************************************
+
+        if not correct_response and not self.__use_ai:
+            self.__logging(
+                'Не найден ответ для множественного сопоставления при выключенном AI. Будет применен ответ по умолчанию.')
+            correct_response = default_response
+        if not correct_response and self.__use_ai:
+            # раз не нашли ответ, но AI включен, то получим текст вопроса из HTML страницы с тегами в сыром виде, ведь AI все равно что разбирать
+            # question, error_msg = self.__get_question_html(type_question)
+            # ai_answer = ai_search.ai_search(
+            #     question,  f'Сопоставь li data из html. Одному значению из multipleMatchBottom может соответствовать несколько значений из multipleMatchRight. Овтет в формате JSON')
+
+            # if config.DEBUG:
+            #     print(f'Ответ AI:\n{ai_answer}')
+
+            # json_answer, need_skip, need_reload, error_msg = service.load_json(
+            #     ai_answer)
+
+            # пока что AI не умеет нормально отвечать на такой тип вопроса
+            correct_response = default_response
+
+            question_answer = {
+                'questionBlock': self.__get_name_discipline(),
+                'question': raw_text_question,
+                'questionType': type_question,
+                'correctResponse': correct_response,
+                'created': datetime.now().date(),
+            }
+            self.__questions_answers.append(question_answer)
 
         if config.DEBUG:
             print(
-                f'Найденный id ответа: {correct_response}\nНайденный id вопроса: {id_question}')
+                f'Найденный ответ: {correct_response}\nНайденный id вопроса: {id_question}')
 
         correct_id_answers = correct_response.split(',')
 
@@ -1284,6 +1520,41 @@ class SynergyParser:
 
         return result
 
+    # получает как текст вопроса с тегами так и весь блок вопроса с вариантами ответа
+    def __get_question_html(self, type_question: str) -> tuple[str, str]:
+        raw_text_question = ''
+        error_msg = ''
+
+        if type_question == 'textEntry':
+            question = self.page.locator('span.test-question-text-2')
+        elif type_question == 'choice':
+            question = self.page.locator('#player-assessments-form')
+        elif type_question == 'choiceMultiple':
+            question = self.page.locator('#player-assessments-form')
+        elif type_question == 'order':
+            question = self.page.locator('#player-assessments-form')
+        elif type_question == 'match':
+            question = self.page.locator('#player-assessments-form')
+        elif type_question == 'matchMultiple':
+            question = self.page.locator('#player-assessments-form')
+        elif type_question == 'sequence':
+            question = self.page.locator('#player-assessments-form')
+        else:
+            return (raw_text_question, error_msg)
+
+        try:
+            raw_text_question = question.inner_html()
+        except TimeoutError:
+            error_msg = 'Ошибка при поиске вопроса html!'
+            result = (raw_text_question, error_msg)
+            return result
+        except Error:
+            error_msg = 'Ошибка при поиске вопроса html!'
+            result = (raw_text_question, error_msg)
+            return result
+
+        return (raw_text_question, error_msg)
+
     # взводит флаг окончания теста, как только доходит до последнего вопроса, так как если есть неотвеченны вопросы,
     # после последнего перекидывает на неотвеченный и тест зацикливается
     def __is_last_question(self) -> str:
@@ -1369,6 +1640,7 @@ class SynergyParser:
         finish = False
         error_msg = ''
         result = (finish, error_msg)
+        self.__questions_answers.clear()
 
         if self.__manual_presskey:
             return result
@@ -1447,20 +1719,8 @@ class SynergyParser:
             error_msg = 'Не удалось определить имя студента!'
             return error_msg
 
-        try:
-            discipline = self.page.locator(
-                'h1.player-discipline').text_content()
-        except TimeoutError:
-            # error_msg = 'Не удалось определить название предмета!'
-            # return error_msg
-            discipline = 'Нет названия предмета'
-        except Error:
-            # error_msg = 'Не удалось определить имя предмета!'
-            # return error_msg
-            discipline = 'Нет имени предмета'
-
+        discipline = self.__get_name_discipline()
         student = student.strip()
-        discipline = discipline.strip()
         found_files = sorted(Path(log_dir).glob(
             f'{student}-{discipline}*.log'))
         name_log_file = ''
@@ -1485,6 +1745,19 @@ class SynergyParser:
 
         return error_msg
 
+    def __get_name_discipline(self) -> str:
+        discipline = ''
+
+        try:
+            discipline = self.page.locator(
+                'h1.player-discipline').text_content()
+        except TimeoutError:
+            discipline = ''
+        except Error:
+            discipline = ''
+
+        return discipline.strip()
+
     def __delete_wrong_symbols(self, file_name: str) -> str:
         if file_name[-1] == '.' or file_name[-1] == ' ':
             file_name[-1] = ''
@@ -1494,6 +1767,36 @@ class SynergyParser:
 
     def __alert(self, message: str) -> None:
         self.page.evaluate(f'() => alert("{message}");')
+
+    # Найдем и переберем таблицу последнего результата теста, для определения верных и не верных ответов
+    def __find_last_result(self) -> None:
+        last_result = self.page.locator('table.table-list tbody').all()[-1]
+        button_statistic = last_result.locator('#statistic')
+
+        try:
+            button_statistic.focus()
+            button_statistic.dispatch_event('click')
+        except TimeoutError:
+            error_msg = 'Не найдена ссылка результатов теста'
+            self.__logging(error_msg)
+
+        row_results = self.page.locator('table.table-corpus tbody tr').all()
+
+        try:
+            for result in row_results:
+                question_text = result.locator('td')[1].inner_text()
+                result_text = result.locator('td')[3].inner_text()
+                self.__save_result_test(question_text, result_text)
+        except TimeoutError:
+            error_msg = 'Не найдены результаты теста на странице'
+            self.__logging(error_msg)
+
+    # запишем результат теста в базу правильных или не правильных ответов
+    def __save_result_test(self, question_text: str, result_text: str) -> None:
+        if 'Не верно' in result_text:
+            pass
+        else:
+            pass
 
     def stop(self) -> None:
         # self.page.remove_listener('load', self.__check_begin_test)

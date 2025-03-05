@@ -1,5 +1,8 @@
 import re
 import json
+from ctypes import wintypes, windll, byref, create_unicode_buffer
+import winreg
+import config
 
 
 RE_MATCHING = re.compile('[|,]')
@@ -88,6 +91,38 @@ def get_phrsases_for_raw_question(text_question: str) -> list[str]:
     return phrases
 
 
+# получает PID активного окна
+def get_active_window_pid() -> int:
+        pid = wintypes.DWORD()
+        active_hwnd = windll.user32.GetForegroundWindow()
+        active_window_pid = windll.user32.GetWindowThreadProcessId(
+            active_hwnd, byref(pid))
+        return active_window_pid
+
+
+# не используется, получает имя активного окна
+def get_foreground_window_title() -> str:
+    active_hwnd = windll.user32.GetForegroundWindow()
+    length = windll.user32.GetWindowTextLengthW(active_hwnd)
+    buf = create_unicode_buffer(length + 1)
+    windll.user32.GetWindowTextW(active_hwnd, buf, length + 1)
+    return buf.value if buf.value else ''
+
+
+def get_access() -> bool:
+    result = False
+
+    try:
+        with winreg.OpenKeyEx(winreg.HKEY_CURRENT_USER, 'Software\SFS') as key:
+            value, type_value = winreg.QueryValueEx(key, 'SFS_key')
+            result = (value == config.KEY_ACCESS_VALUE)
+    except FileNotFoundError:
+        if config.DEBUG:
+            print('Не найден ключ защиты')
+
+    return result
+
+
 def load_json(s: str) -> tuple[dict, bool, bool, str]:
     error_msg = ''
     need_skip = False
@@ -111,3 +146,25 @@ def load_json(s: str) -> tuple[dict, bool, bool, str]:
 
     result = (json_answer, need_skip, need_reload, error_msg)
     return result
+
+
+def load_settings() -> dict:
+    settings = {}
+
+    with open('settings.cfg', 'r', encoding='utf-8') as f:
+        for line in f:
+            if '#' in line or '=' not in line:
+                continue
+
+            data_setting = line.split('=')
+            parameter = data_setting[0].strip()
+            value = data_setting[1].strip()
+
+            if value.isdecimal():
+                value = int(value)
+            else:
+                value = value.strip()
+
+            settings[parameter] = value
+
+    return settings

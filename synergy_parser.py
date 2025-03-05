@@ -2,10 +2,7 @@ from playwright.sync_api import sync_playwright, TimeoutError, Error, expect
 from fake_useragent import UserAgent
 from pathlib import Path
 from datetime import datetime
-from ctypes import wintypes, windll, create_unicode_buffer, byref
-import json
 import keyboard
-import winreg
 import model
 import config
 import time
@@ -32,7 +29,7 @@ class SynergyParser:
     def __init__(self, start_url: str) -> None:
         self.start_url = start_url
         self.ua = UserAgent()
-        self.__settings = self.__load_settings()
+        self.__settings = service.load_settings()
         self.proxy_info = self.__get_unused_proxy()
         self.__playwright = sync_playwright().start()
         self.__browser = self.__playwright.chromium.launch(headless=False,
@@ -55,11 +52,12 @@ class SynergyParser:
         self.__path_log_file = ''
         self.__complete_test = False
         self.__manual_presskey = False
-        self.__pid = self.__get_active_window_pid()
+        self.__pid = service.get_active_window_pid()
         self.__set_used_proxy()
         self.__set_hotkey()
         self.__begin_autotest_running = False
         self.__use_ai = self.__settings.get('use_ai', 0)
+        self.__name_ai = self.__settings.get('name_ai', '')
         self.__questions_answers = []
 
     def __set_hotkey(self) -> None:
@@ -68,41 +66,14 @@ class SynergyParser:
                 'ctrl+F4', self.__set_manual_presskey, suppress=True)
 
     def __set_manual_presskey(self) -> None:
-        active_pid = self.__get_active_window_pid()
+        active_pid = service.get_active_window_pid()
 
         if self.__pid == active_pid:
             self.__manual_presskey = not self.__manual_presskey
 
-    def __get_active_window_pid(self) -> int:
-        pid = wintypes.DWORD()
-        active_hwnd = windll.user32.GetForegroundWindow()
-        active_window_pid = windll.user32.GetWindowThreadProcessId(
-            active_hwnd, byref(pid))
-        return active_window_pid
-
-    # не используется, получает имя активного окна
-    def __get_foreground_window_title(self) -> str:
-        active_hwnd = windll.user32.GetForegroundWindow()
-        length = windll.user32.GetWindowTextLengthW(active_hwnd)
-        buf = create_unicode_buffer(length + 1)
-        windll.user32.GetWindowTextW(active_hwnd, buf, length + 1)
-        return buf.value if buf.value else ''
-
-    def get_access(self) -> bool:
-        result = False
-
-        try:
-            with winreg.OpenKeyEx(winreg.HKEY_CURRENT_USER, 'Software\SFS') as key:
-                value, type_value = winreg.QueryValueEx(key, 'SFS_key')
-                result = (value == config.KEY_ACCESS_VALUE)
-        except FileNotFoundError:
-            if config.DEBUG:
-                print('Не найден ключ защиты')
-
-        return result
-
     # ********************* Работа с прокси ******************************************************************************
     # Пример результата: proxy={"server": "http://83.167.122.108:1405", "username": "em7YT4", "password": "AzRAB9uc2ukp"})
+
     def __get_proxy_settings(self) -> dict | None:
         proxy = {}
 
@@ -142,30 +113,9 @@ class SynergyParser:
 
     # ******************* Конец работы с прокси ************************************************************
 
-    def __load_settings(self) -> dict:
-        settings = {}
-
-        with open('settings.cfg', 'r', encoding='utf-8') as f:
-            for line in f:
-                if '#' in line or '=' not in line:
-                    continue
-
-                data_setting = line.split('=')
-                parameter = data_setting[0].strip()
-                value = data_setting[1].strip()
-
-                if value.isdecimal():
-                    value = int(value)
-                else:
-                    self.__logging(
-                        'Ошибка загрузки настроек: параметр должен быть целым числом')
-
-                settings[parameter] = value
-
-        return settings
-
     # ЧАСТЬ ДЛЯ РУЧНОГО ПОИСКА И ЗАПУСКА ТЕСТА **************************************************************************************************************************
     # стартует программа без логина студента, но с ожиданием появления таймера (#testTimeLimit) теста на странице и если он есть, то запускает автотест (ожидает однократно)
+
     def start_manually(self) -> None:
         self.page.goto(self.start_url)
 
@@ -245,7 +195,7 @@ class SynergyParser:
                 if config.DEBUG:
                     print('ВЕРНУЛИСЬ ИЗ __begin_autotest')
         except TimeoutError:
-            error_msg = 'Не обнаружен таймер теста ...'
+            error_msg = 'Не обнаружен таймер теста'
         except Error:
             error_msg = 'Не обнаружен таймер теста ...'
 
@@ -591,7 +541,14 @@ class SynergyParser:
             self.__question_block_id = 0
             id_answer, id_question = self.__find_answer_for_textentry(variants_question,
                                                                       type_question)
-        id_answer = 0
+
+        if config.DEBUG:
+            print(
+                f'Найденный id ответа: {id_answer}\nНайденный id вопроса: {id_question}')
+
+        if config.ONLY_AI_SEARCH and self.__use_ai:
+            id_answer = 0
+
         if not id_answer and not self.__use_ai:
             error_msg = 'Не найден текстовый ответ при выключенном поиске AI'
             need_skip = True
@@ -606,10 +563,10 @@ class SynergyParser:
         elif id_answer:
             text_answer = model.get_text_answer(id_answer, id_question)
         elif not id_answer and self.__use_ai:
-            # раз не нашли ответ, но AI включен, то получим текст вопроса из HTML траницы с тегами в сыром виде
-            # ai_answer = ai_search.ai_search('Ты YandexGPT 5 или YandexGPT 4?')
+            # ai_answer = ai_search.ai_search('Ты YandexGPT 5 или YandexGPT 4?', self.__name_ai)
             text_answer = ai_search.ai_search(
-                raw_text_question, 'Ответь без знаков препинания')
+                f'{raw_text_question} Вставь пропущенное слово без точки',
+                self.__name_ai)
             question_answer = {
                 'questionBlock': self.__test_info['discipline'],
                 'question': raw_text_question,
@@ -622,10 +579,6 @@ class SynergyParser:
 
             if config.DEBUG:
                 print(f'Ответ AI:\n{text_answer}')
-
-        if config.DEBUG:
-            print(
-                f'Найденный id ответа: {id_answer}\nНайденный id вопроса: {id_question}')
 
         if not text_answer:
             error_msg = 'Не найден текстовый ответ, хотя ID ответа было получено'
@@ -703,6 +656,13 @@ class SynergyParser:
             id_answer, id_question = self.__find_answer_for_choice(variants_question,
                                                                    type_question)
 
+        if config.DEBUG:
+            print(
+                f'Найденный id ответа: {id_answer}\nНайденный id вопроса: {id_question}')
+
+        if config.ONLY_AI_SEARCH and self.__use_ai:
+            id_answer = ''
+
         if not id_answer and not self.__use_ai:
             error_msg = 'Не найден единственный правильный ответ!'
             need_skip = True
@@ -715,20 +675,24 @@ class SynergyParser:
             variants_answers = ai_search.get_variants_answers_for_choice(
                 self.page, False)
             ai_answer = ai_search.ai_search(
-                f'{raw_text_question} варианты ответа: {variants_answers} Выбери один правильный ключ из структуры JSON. Ответ напиши в виде строки.')
+                f'{raw_text_question} Варианты ответа в JSON: {variants_answers} Оставь в JSON только один верный ответ.',
+                self.__name_ai)
 
             if config.DEBUG:
                 print(f'Ответ AI:\n{ai_answer}')
 
-            if not ai_answer:
+            ai_dict, need_skip, need_reload, error_msg = service.load_json(
+                ai_answer)
+
+            if error_msg:
                 self.__count_unfound_answers += 1
-                need_skip = True
-                need_reload = False
-                error_msg = 'Ответ не найден AI'
                 result = (need_skip, need_reload, error_msg)
                 return result
-            
-            id_answer = ai_answer.strip()
+
+            for key in ai_dict:
+                id_answer += key
+                break
+
             question_answer = {
                 'questionBlock': self.__test_info['discipline'],
                 'question': raw_text_question,
@@ -738,10 +702,6 @@ class SynergyParser:
             }
 
             self.__questions_answers.append(question_answer)
-
-        if config.DEBUG:
-            print(
-                f'Найденный id ответа: {id_answer}\nНайденный id вопроса: {id_question}')
 
         radio_button = self.page.locator(f'input[value="{id_answer}"]')
 
@@ -812,6 +772,13 @@ class SynergyParser:
             id_answers, id_question = self.__find_answer_for_choose_multiple(variants_question,
                                                                              type_question)
 
+        if config.DEBUG:
+            print(
+                f'Найденные id для ответа: {id_answers}\nНайденный id вопроса: {id_question}')
+
+        if config.ONLY_AI_SEARCH and self.__use_ai:
+            id_answers = ''
+
         if not id_answers and not self.__use_ai:
             error_msg = 'Не найден набор правильных ответов при выключенном AI!'
             need_skip = True
@@ -822,22 +789,27 @@ class SynergyParser:
         elif not id_answers and self.__use_ai:
             raw_text_question = ai_search.get_text_answer(self.page)
             variants_answers = ai_search.get_variants_answers_for_choice(
-                  self.page, True)
+                self.page, True)
             ai_answer = ai_search.ai_search(
-                   f'{raw_text_question} варианты ответа: {variants_answers} Выбери несколько правильных ключей из структуры JSON. Перечисли ключи через запятую в одной строке.')
+                f'{raw_text_question} варианты ответа: {variants_answers} Оставь в JSON только верные элементы',
+                self.__name_ai)
 
             if config.DEBUG:
                 print(f'Ответ AI:\n{ai_answer}')
 
-            if not ai_answer:
+            ai_dict, need_skip, need_reload, error_msg = service.load_json(
+                ai_answer)
+
+            if error_msg:
                 self.__count_unfound_answers += 1
-                need_skip = True
-                need_reload = False
-                error_msg = 'Ответ не найден AI'
                 result = (need_skip, need_reload, error_msg)
                 return result
-            
-            id_answers = ai_answer.replace(' ', '')
+
+            for key in ai_dict:
+                id_answers += f'{key},'
+
+            id_answers = id_answers[0:-1]
+
             question_answer = {
                 'questionBlock': self.__test_info['discipline'],
                 'question': raw_text_question,
@@ -847,11 +819,6 @@ class SynergyParser:
             }
 
             self.__questions_answers.append(question_answer)
-            
-
-        if config.DEBUG:
-            print(
-                f'Найденные id для ответа: {id_answers}\nНайденный id вопроса: {id_question}')
 
         for id_answer in id_answers.split(','):
             radio_button = self.page.locator(f'input[value="{id_answer}"]')
@@ -940,6 +907,9 @@ class SynergyParser:
         # в любом случае считаем порядок по умолчанию верным для сортировки
         correct_id_answers = current_id_answers
 
+        if config.ONLY_AI_SEARCH and self.__use_ai:
+            correct_id_answers = []
+
         if current_id_answers != correct_id_answers and not self.__use_ai:
             error_msg = 'Обнаружен неверный порядок ответов! При выключенном AI'
             need_skip = True
@@ -948,31 +918,33 @@ class SynergyParser:
             result = (need_skip, need_reload, error_msg)
             return result
         elif current_id_answers != correct_id_answers and self.__use_ai:
-            # раз не нашли ответ, но AI включен, то получим текст вопроса из HTML траницы с тегами в сыром виде, ведь AI все равно что разбирать
-            question, error_msg = self.__get_question_html(type_question)
-            ai_answer = ai_search.ai_search(question,
-                                            f'Ответь на вопрос. Напиши верный порядок атрибутов value тега input через запятую без пробелов')
+            raw_text_question = ai_search.get_text_answer(self.page)
+            variants_answers = ai_search.get_variants_answers_for_sort(
+                self.page, False)
+            ai_answer = ai_search.ai_search(
+                f"""{raw_text_question} Вариант правильного порядка: {variants_answers}. 
+                Напиши верный порядок в виде строки ключей JSON, одной строкой через запятую и без пробелов""",
+                self.__name_ai)
 
             if config.DEBUG:
                 print(f'Ответ AI:\n{ai_answer}')
 
             question_answer = {
-                'questionBlock': self.__get_name_discipline(),
+                'questionBlock': self.__test_info['discipline'],
                 'question': raw_text_question,
                 'questionType': type_question,
-                'correctResponse': ','.join(correct_id_answers),
+                'correctResponse': ai_answer,
                 'created': datetime.now().date(),
             }
             self.__questions_answers.append(question_answer)
+            correct_id_answers = ai_answer.split(',')
 
-            # correct_id_answers = ai_answer.split(',')
-
-            # if current_id_answers != correct_id_answers:
-            #     error_msg = 'Обнаружен неверный порядок ответов! При включенном AI'
-            #     need_skip = True
-            #     need_reload = False
-            #     self.__count_unfound_answers += 1
-            #     result = (need_skip, need_reload, error_msg)
+            if current_id_answers != correct_id_answers:
+                error_msg = 'Обнаружен неверный порядок ответов! При включенном AI'
+                need_skip = True
+                need_reload = False
+                self.__count_unfound_answers += 1
+                result = (need_skip, need_reload, error_msg)
 
             # На самом деле робот далее просто жмет Ответить без проверки. Скорее всего порядок верен изначально
 
@@ -1046,6 +1018,10 @@ class SynergyParser:
             correct_response, id_question = self.__find_answer_for_matching(variants_question,
                                                                             type_question)
 
+        if config.DEBUG:
+            print(
+                f'Найденный ответ: {correct_response}\nНайденный id вопроса: {id_question}')
+
         # Соберем ответ по умолчанию в порядке букв как на странице(скорее всего это верный порядок) ***
         default_response = ''
         bottom_side = self.page.locator('div.docBottom div.ui-draggable').all()
@@ -1057,44 +1033,40 @@ class SynergyParser:
             default_response += f'{id_left}|{id_bottom},'
         # **********************************************************************************************
 
+        if config.ONLY_AI_SEARCH and self.__use_ai:
+            correct_response = ''
+
         if not correct_response and not self.__use_ai:
             self.__logging(
                 'Не найден ответ для сопоставления при выключенном AI. Будет применен ответ по умолчанию.')
             correct_response = default_response
         elif not correct_response and self.__use_ai:
-            # раз не нашли ответ, но AI включен, то получим текст вопроса из HTML страницы с тегами в сыром виде, ведь AI все равно что разбирать
-            question, error_msg = self.__get_question_html(type_question)
-            ai_answer = ai_search.ai_search(question,
-                                            f'Сопоставь id ответов из html в формате JSON, где ключ структуры: div id левой части, а значение структуры: div id правой части')
+            raw_text_question = ai_search.get_text_answer(self.page)
+            left_answers, bottom_answers = ai_search.get_variants_answers_for_match(
+                self.page)
+            ai_answer = ai_search.ai_search(
+                f"""{raw_text_question} Первый JSON: {left_answers} второй JSON: {bottom_answers}. 
+                Установи соответствие между двумя JSON, ответ дай без пробелов в виде одной строки: ключ|ключ,""",
+                self.__name_ai)
 
             if config.DEBUG:
                 print(f'Ответ AI:\n{ai_answer}')
 
-            json_answer, need_skip, need_reload, error_msg = service.load_json(
-                ai_answer)
-
-            if error_msg or not service.validate_dict_answer(json_answer):
+            if '|' not in ai_answer:
                 self.__logging(
                     f'{error_msg} Будет применен ответ по умолчанию.')
                 correct_response = default_response
             else:
-                for key, value in json_answer.items():
-                    correct_response += f'{key}|{value},'
+                correct_response = ai_answer
 
-                correct_response = correct_response[0:-1]
-
-        question_answer = {
-            'questionBlock': self.__get_name_discipline(),
-            'question': raw_text_question,
-            'questionType': type_question,
-            'correctResponse': correct_response,
-            'created': datetime.now().date(),
-        }
-        self.__questions_answers.append(question_answer)
-
-        if config.DEBUG:
-            print(
-                f'Найденный ответ: {correct_response}\nНайденный id вопроса: {id_question}')
+            question_answer = {
+                'questionBlock': self.__get_name_discipline(),
+                'question': raw_text_question,
+                'questionType': type_question,
+                'correctResponse': correct_response,
+                'created': datetime.now().date(),
+            }
+            self.__questions_answers.append(question_answer)
 
         pair_id_answers = correct_response.split(',')
 
@@ -1182,6 +1154,13 @@ class SynergyParser:
             correct_response, id_question = self.__find_answer_for_sequence(variants_question,
                                                                             type_question)
 
+        if config.DEBUG:
+            print(
+                f'Найденный ответ: {correct_response}\nНайденный id вопроса: {id_question}')
+
+        if config.ONLY_AI_SEARCH and self.__use_ai:
+            correct_response = ''
+
         if not correct_response and not self.__use_ai:
             error_msg = 'Не найден ответ для сложной сортировки. При выключенном AI'
             need_skip = True
@@ -1190,28 +1169,37 @@ class SynergyParser:
             result = (need_skip, need_reload, error_msg)
             return result
         elif not correct_response and self.__use_ai:
-            # раз не нашли ответ, но AI включен, то получим текст вопроса из HTML страницы с тегами в сыром виде, ведь AI все равно что разбирать
-            question, error_msg = self.__get_question_html(type_question)
-            ai_answer = ai_search.ai_search(question,
-                                            f'Перечисли верный порядок атрибутов value html в строке через запятую')
+            raw_text_question = ai_search.get_text_answer(self.page)
+            variants_answers = ai_search.get_variants_answers_for_sort_sequence(
+                self.page)
+            ai_answer = ai_search.ai_search(
+                f'{raw_text_question} Расположи элементы JSON: {variants_answers} в правильном порядке',
+                self.__name_ai)
 
             if config.DEBUG:
                 print(f'Ответ AI:\n{ai_answer}')
 
+            ai_dict, need_skip, need_reload, error_msg = service.load_json(
+                ai_answer)
+
+            if error_msg:
+                self.__count_unfound_answers += 1
+                result = (need_skip, need_reload, error_msg)
+                return result
+
+            for key in ai_dict:
+                correct_response += f'{key},'
+
+            correct_response = correct_response[0:-1]
+
             question_answer = {
-                'questionBlock': self.__get_name_discipline(),
+                'questionBlock': self.__test_info['discipline'],
                 'question': raw_text_question,
                 'questionType': type_question,
-                'correctResponse': ai_answer,
+                'correctResponse': correct_response,
                 'created': datetime.now().date(),
             }
             self.__questions_answers.append(question_answer)
-
-            correct_response = ai_answer
-
-        if config.DEBUG:
-            print(
-                f'Найденный ответ: {correct_response}\nНайденный id вопроса: {id_question}')
 
         id_answers = correct_response.split(',')
         block_answers = self.page.locator('ul[id="sequence_answers"]')
@@ -1304,6 +1292,10 @@ class SynergyParser:
             correct_response, id_question = self.__find_answer_for_matchmultiple(variants_question,
                                                                                  type_question)
 
+        if config.DEBUG:
+            print(
+                f'Найденный ответ: {correct_response}\nНайденный id вопроса: {id_question}')
+
         # Соберем ответ по умолчанию в порядке букв как на странице(скорее всего это верный порядок) ***
         bottom_side = self.page.locator('#answerChoises li').all()
         count_bottom_side = len(bottom_side)
@@ -1331,37 +1323,40 @@ class SynergyParser:
         # 6Oj9|8GZi;Bqng;eO5U,d1jK|2SBf;B2xf;jf6o,wx9r|ZqR2;eUy3;gmkq;iNmW
         # **********************************************************************************************
 
+        if config.ONLY_AI_SEARCH and self.__use_ai:
+            correct_response = ''
+
         if not correct_response and not self.__use_ai:
             self.__logging(
                 'Не найден ответ для множественного сопоставления при выключенном AI. Будет применен ответ по умолчанию.')
             correct_response = default_response
         if not correct_response and self.__use_ai:
-            # раз не нашли ответ, но AI включен, то получим текст вопроса из HTML страницы с тегами в сыром виде, ведь AI все равно что разбирать
-            # question, error_msg = self.__get_question_html(type_question)
-            # ai_answer = ai_search.ai_search(
-            #     question,  f'Сопоставь li data из html. Одному значению из multipleMatchBottom может соответствовать несколько значений из multipleMatchRight. Овтет в формате JSON')
+            raw_text_question = ai_search.get_text_answer(self.page)
+            left_answers, bottom_answers = ai_search.get_variants_answers_for_match_multiple(
+                self.page)
+            ai_answer = ai_search.ai_search(
+                f"""{raw_text_question} Первый JSON: {left_answers} второй JSON: {bottom_answers}. 
+                Установи соответствие между двумя JSON, ответ дай без пробелов в виде одной строки: ключ|ключ;ключ,""",
+                self.__name_ai)
 
-            # if config.DEBUG:
-            #     print(f'Ответ AI:\n{ai_answer}')
+            if config.DEBUG:
+                print(f'Ответ AI:\n{ai_answer}')
 
-            # json_answer, need_skip, need_reload, error_msg = service.load_json(
-            #     ai_answer)
-
-            # пока что AI не умеет нормально отвечать на такой тип вопроса
-            correct_response = default_response
+            if '|' not in ai_answer:
+                self.__logging(
+                    f'{error_msg} Будет применен ответ по умолчанию.')
+                correct_response = default_response
+            else:
+                correct_response = ai_answer
 
             question_answer = {
-                'questionBlock': self.__get_name_discipline(),
+                'questionBlock': self.__test_info['discipline'],
                 'question': raw_text_question,
                 'questionType': type_question,
                 'correctResponse': correct_response,
                 'created': datetime.now().date(),
             }
             self.__questions_answers.append(question_answer)
-
-        if config.DEBUG:
-            print(
-                f'Найденный ответ: {correct_response}\nНайденный id вопроса: {id_question}')
 
         correct_id_answers = correct_response.split(',')
 
@@ -1519,41 +1514,6 @@ class SynergyParser:
         result = (variants_question, raw_text_question, error_msg)
 
         return result
-
-    # получает как текст вопроса с тегами так и весь блок вопроса с вариантами ответа
-    def __get_question_html(self, type_question: str) -> tuple[str, str]:
-        raw_text_question = ''
-        error_msg = ''
-
-        if type_question == 'textEntry':
-            question = self.page.locator('span.test-question-text-2')
-        elif type_question == 'choice':
-            question = self.page.locator('#player-assessments-form')
-        elif type_question == 'choiceMultiple':
-            question = self.page.locator('#player-assessments-form')
-        elif type_question == 'order':
-            question = self.page.locator('#player-assessments-form')
-        elif type_question == 'match':
-            question = self.page.locator('#player-assessments-form')
-        elif type_question == 'matchMultiple':
-            question = self.page.locator('#player-assessments-form')
-        elif type_question == 'sequence':
-            question = self.page.locator('#player-assessments-form')
-        else:
-            return (raw_text_question, error_msg)
-
-        try:
-            raw_text_question = question.inner_html()
-        except TimeoutError:
-            error_msg = 'Ошибка при поиске вопроса html!'
-            result = (raw_text_question, error_msg)
-            return result
-        except Error:
-            error_msg = 'Ошибка при поиске вопроса html!'
-            result = (raw_text_question, error_msg)
-            return result
-
-        return (raw_text_question, error_msg)
 
     # взводит флаг окончания теста, как только доходит до последнего вопроса, так как если есть неотвеченны вопросы,
     # после последнего перекидывает на неотвеченный и тест зацикливается

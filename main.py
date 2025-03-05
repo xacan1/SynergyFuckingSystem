@@ -1,4 +1,5 @@
 from synergy_parser import SynergyParser, config, Error
+from service import get_access
 import model
 
 # $env:PLAYWRIGHT_BROWSERS_PATH="0"
@@ -9,7 +10,7 @@ def main() -> None:
     model.create_db_incorrect_answers()
     sp = SynergyParser(config.START_TEST_URL)
 
-    if not sp.get_access():
+    if not get_access():
         return
 
     try:

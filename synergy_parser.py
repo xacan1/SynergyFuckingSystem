@@ -270,16 +270,13 @@ class SynergyParser:
         if need_skip:
             self.__skip_question(error_msg)
             return ''
-        elif need_reload:
+        elif need_reload or error_msg:
             return error_msg
-        # elif error_msg and self.__use_ai:
-        #     ai_search.searching_for_answer()
 
         self.__pause_for_answer()
         error_msg = self.__send_answer()
 
         if error_msg:
-            # self.__reload(error_msg)
             return error_msg
 
     # Определяет возникновение ошибок на стороне сервера, как правило при этом футер не прогружен
@@ -563,10 +560,11 @@ class SynergyParser:
         elif id_answer:
             text_answer = model.get_text_answer(id_answer, id_question)
         elif not id_answer and self.__use_ai:
-            # ai_answer = ai_search.ai_search('Ты YandexGPT 5 или YandexGPT 4?', self.__name_ai)
-            text_answer = ai_search.ai_search(
-                f'{raw_text_question} Вставь пропущенное слово без точки',
+            # ai_answer, error_msg = ai_search.ai_search('Ты YandexGPT 5 или YandexGPT 4?', self.__name_ai)
+            text_answer, error_msg = ai_search.ai_search(
+                f'{raw_text_question} В ответе укажи только пропущенное слово',
                 self.__name_ai)
+            text_answer = text_answer.replace('.', '')
             question_answer = {
                 'questionBlock': self.__test_info['discipline'],
                 'question': raw_text_question,
@@ -580,8 +578,14 @@ class SynergyParser:
             if config.DEBUG:
                 print(f'Ответ AI:\n{text_answer}')
 
-        if not text_answer:
+        if not error_msg and not text_answer:
             error_msg = 'Не найден текстовый ответ, хотя ID ответа было получено'
+            need_skip = True
+            need_reload = False
+            self.__count_unfound_answers += 1
+            result = (need_skip, need_reload, error_msg)
+            return result
+        elif error_msg and not text_answer:
             need_skip = True
             need_reload = False
             self.__count_unfound_answers += 1
@@ -671,11 +675,12 @@ class SynergyParser:
             result = (need_skip, need_reload, error_msg)
             return result
         elif not id_answer and self.__use_ai:
-            raw_text_question = ai_search.get_text_answer(self.page)
+            raw_text_question = ai_search.get_text_answer(self.page,
+                                                          self.__name_ai)
             variants_answers = ai_search.get_variants_answers_for_choice(
                 self.page, False)
-            ai_answer = ai_search.ai_search(
-                f'{raw_text_question} Варианты ответа в JSON: {variants_answers} Оставь в JSON только один верный ответ.',
+            ai_answer, error_msg = ai_search.ai_search(
+                f'{raw_text_question} Варианты ответа в JSON: {variants_answers} В ответе оставь только правильный элемент JSON',
                 self.__name_ai)
 
             if config.DEBUG:
@@ -787,10 +792,11 @@ class SynergyParser:
             result = (need_skip, need_reload, error_msg)
             return result
         elif not id_answers and self.__use_ai:
-            raw_text_question = ai_search.get_text_answer(self.page)
+            raw_text_question = ai_search.get_text_answer(self.page,
+                                                          self.__name_ai)
             variants_answers = ai_search.get_variants_answers_for_choice(
                 self.page, True)
-            ai_answer = ai_search.ai_search(
+            ai_answer, error_msg = ai_search.ai_search(
                 f'{raw_text_question} варианты ответа: {variants_answers} Оставь в JSON только верные элементы',
                 self.__name_ai)
 
@@ -904,6 +910,10 @@ class SynergyParser:
                                                                            type_question,
                                                                            current_id_answers)
 
+        if config.DEBUG:
+            print(
+                f'Найденные id ответа: {correct_id_answers}\nНайденный id вопроса: {id_question}')
+
         # в любом случае считаем порядок по умолчанию верным для сортировки
         correct_id_answers = current_id_answers
 
@@ -918,12 +928,14 @@ class SynergyParser:
             result = (need_skip, need_reload, error_msg)
             return result
         elif current_id_answers != correct_id_answers and self.__use_ai:
-            raw_text_question = ai_search.get_text_answer(self.page)
+            raw_text_question = ai_search.get_text_answer(self.page,
+                                                          self.__name_ai)
             variants_answers = ai_search.get_variants_answers_for_sort(
-                self.page, False)
-            ai_answer = ai_search.ai_search(
+                self.page)
+            ai_answer, error_msg = ai_search.ai_search(
                 f"""{raw_text_question} Вариант правильного порядка: {variants_answers}. 
-                Напиши верный порядок в виде строки ключей JSON, одной строкой через запятую и без пробелов""",
+                Напиши правильный порядок в виде строки ключей JSON, одной строкой
+                  через запятую и без пробелов. В ответе только ключи JSON""",
                 self.__name_ai)
 
             if config.DEBUG:
@@ -1041,10 +1053,11 @@ class SynergyParser:
                 'Не найден ответ для сопоставления при выключенном AI. Будет применен ответ по умолчанию.')
             correct_response = default_response
         elif not correct_response and self.__use_ai:
-            raw_text_question = ai_search.get_text_answer(self.page)
+            raw_text_question = ai_search.get_text_answer(self.page,
+                                                          self.__name_ai)
             left_answers, bottom_answers = ai_search.get_variants_answers_for_match(
                 self.page)
-            ai_answer = ai_search.ai_search(
+            ai_answer, error_msg = ai_search.ai_search(
                 f"""{raw_text_question} Первый JSON: {left_answers} второй JSON: {bottom_answers}. 
                 Установи соответствие между двумя JSON, ответ дай без пробелов в виде одной строки: ключ|ключ,""",
                 self.__name_ai)
@@ -1169,10 +1182,11 @@ class SynergyParser:
             result = (need_skip, need_reload, error_msg)
             return result
         elif not correct_response and self.__use_ai:
-            raw_text_question = ai_search.get_text_answer(self.page)
+            raw_text_question = ai_search.get_text_answer(self.page,
+                                                          self.__name_ai)
             variants_answers = ai_search.get_variants_answers_for_sort_sequence(
                 self.page)
-            ai_answer = ai_search.ai_search(
+            ai_answer, error_msg = ai_search.ai_search(
                 f'{raw_text_question} Расположи элементы JSON: {variants_answers} в правильном порядке',
                 self.__name_ai)
 
@@ -1331,18 +1345,20 @@ class SynergyParser:
                 'Не найден ответ для множественного сопоставления при выключенном AI. Будет применен ответ по умолчанию.')
             correct_response = default_response
         if not correct_response and self.__use_ai:
-            raw_text_question = ai_search.get_text_answer(self.page)
+            raw_text_question = ai_search.get_text_answer(self.page,
+                                                          self.__name_ai)
             left_answers, bottom_answers = ai_search.get_variants_answers_for_match_multiple(
                 self.page)
-            ai_answer = ai_search.ai_search(
+            ai_answer, error_msg = ai_search.ai_search(
                 f"""{raw_text_question} Первый JSON: {left_answers} второй JSON: {bottom_answers}. 
-                Установи соответствие между двумя JSON, ответ дай без пробелов в виде одной строки: ключ|ключ;ключ,""",
+                Установи связь между элементами двух JSON. Каждому элементу первого JSON может
+                  соответствовать несколько элементов второго JSON. Ответ дай без пробелов в виде одной строки по шаблону: ключ|ключ;ключ,""",
                 self.__name_ai)
 
             if config.DEBUG:
                 print(f'Ответ AI:\n{ai_answer}')
 
-            if '|' not in ai_answer:
+            if '|' not in ai_answer or len(ai_answer) != len(default_response):
                 self.__logging(
                     f'{error_msg} Будет применен ответ по умолчанию.')
                 correct_response = default_response
@@ -1600,6 +1616,7 @@ class SynergyParser:
         finish = False
         error_msg = ''
         result = (finish, error_msg)
+        # тут должна быть проверка ответов на форме завершения теста и запись в БД
         self.__questions_answers.clear()
 
         if self.__manual_presskey:

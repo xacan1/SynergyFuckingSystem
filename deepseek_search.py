@@ -15,8 +15,12 @@ def ai_search(question: str, name_ai: str) -> str:
         temperature=.8,
         stream=False
     )
-
     ai_answer = response.choices[0].message.content
+
+    if ai_answer is None:
+        ai_answer = ''
+    else:
+        ai_answer = ai_answer.strip().replace('`', '').replace('json', '')
 
     return ai_answer
 

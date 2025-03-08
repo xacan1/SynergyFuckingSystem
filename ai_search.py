@@ -4,15 +4,18 @@ import yandex_gpt_search
 import deepseek_search
 
 
-def ai_search(question: str, name_ai: str) -> str:
+def ai_search(question: str, name_ai: str) -> tuple[str, str]:
     ai_answer = ''
+    error_msg = ''
 
-    if name_ai == 'deepseek-chat':
+    if name_ai == 'deepseek-chat' or name_ai == 'deepseek-reasoner':
         ai_answer = deepseek_search.ai_search(question, name_ai)
     elif name_ai == 'yandexgpt':
         ai_answer = yandex_gpt_search.ai_search(question)
+    else:
+        error_msg = 'Неверное имя нейросети!'
 
-    return ai_answer
+    return ai_answer, error_msg
 
 
 def get_text_answer(page: Page, name_ai: str) -> str:

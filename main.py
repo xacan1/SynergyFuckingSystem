@@ -8,7 +8,7 @@ def main() -> None:
     model.create_proxies_db()
     model.create_db_correct_answers()
     model.create_db_incorrect_answers()
-    sp = SynergyParser(config.START_TEST_URL)
+    sp = SynergyParser(config.START_URL)
 
     if not get_access():
         return

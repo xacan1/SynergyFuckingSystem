@@ -1,6 +1,11 @@
 import sqlite3 as sq
 from datetime import datetime
+from service import load_settings
 import config
+
+
+SETTINGS = load_settings()
+PATH_AI_DB = SETTINGS.get('path_db', '')
 
 
 def create_proxies_db() -> None:
@@ -18,7 +23,7 @@ def create_proxies_db() -> None:
 
 
 def create_ai_answers_db() -> None:
-    with sq.connect(config.DB_AI_ANSWERS_FILE_NAME) as con:
+    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:
         cur = con.cursor()
         cur.executescript("""
         CREATE TABLE IF NOT EXISTS question_blocks(
@@ -247,7 +252,7 @@ def get_question_id(cur: sq.Cursor, question: str, question_type: str, question_
 
 # Запись верного ответа от AI в специальную базу ответов
 def save_correct_answer(question_answer: dict) -> None:
-    with sq.connect(config.DB_AI_ANSWERS_FILE_NAME) as con:
+    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:
         cur = con.cursor()
         title_discipline = question_answer.get('questionBlock')
         question_block_id = get_question_block_id(cur, title_discipline)
@@ -294,7 +299,10 @@ def get_incorrect_response_id(cur: sq.Cursor, incorrect_response: str, question_
 
 # Запись неверного ответа от AI в специальную таблицу ответов
 def save_incorrect_answer(question_answer: dict) -> None:
-    with sq.connect(config.DB_AI_ANSWERS_FILE_NAME) as con:
+    if question_answer.get('questionType') == 'textEntry':
+        return
+
+    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:
         cur = con.cursor()
         title_discipline = question_answer.get('questionBlock')
         question_block_id = get_question_block_id(cur, title_discipline)

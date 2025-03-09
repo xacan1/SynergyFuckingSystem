@@ -176,30 +176,24 @@ class SynergyParser:
         try:
             # Если найдена кнопка идентификации теста, значит мы начинаем новый тест и нужно сбросить старые значения объекта парсера
             # не зависимо завершили мы прошлый тест или нет
-            if self.page.locator('#cvsBtn').count() > 0:
+            if self.page.locator('#cvsBtn').count() > 0 or self.page.locator('#startPlayerBtn').count() > 0:
                 self.__test_info = {}
                 self.__question_block_id = 0
                 self.__count_unfound_answers = 0
                 self.__path_log_file = ''
-
-                if config.DEBUG:
-                    print('Обнаружена кнопка идентификации начала теста')
-
-            # Если найдена кнопка начала теста, то получим наименование дисциплины из хлебных крошек, мы либо начинаем либо заканчиваем тест
-            if self.page.locator('#startPlayerBtn').count() > 0:
                 discipline = self.__get_name_discipline()
 
                 if discipline:
                     self.__current_discipline = discipline
 
-                if config.DEBUG:
-                    print(
-                        f'Обнаружена кнопка начала теста по дисциплине: {self.__current_discipline}')
-
                 if self.__use_ai and self.__questions_answers:
                     ai_search.check_and_save_result_test(self.page,
                                                          self.__questions_answers)
                     self.__questions_answers.clear()
+
+                if config.DEBUG:
+                    print(
+                        f'Обнаружена кнопка идентификации или начала теста по дисциплине: {self.__current_discipline}')
 
         except Error:
             pass
@@ -535,20 +529,24 @@ class SynergyParser:
         need_skip = False
         need_reload = False
         result = (need_skip, need_reload, error_msg)
-        id_answer, id_question = self.__find_answer_for_textentry(variants_question,
-                                                                  type_question)
+        id_answer = ''
+        id_question = 0
 
-        if not id_answer:
-            self.__question_block_id = 0
+        if self.__use_only_ai_search():
             id_answer, id_question = self.__find_answer_for_textentry(variants_question,
                                                                       type_question)
+
+            if not id_answer:
+                self.__question_block_id = 0
+                id_answer, id_question = self.__find_answer_for_textentry(variants_question,
+                                                                          type_question)
 
         if config.DEBUG:
             print(
                 f'Найденный id ответа: {id_answer}\nНайденный id вопроса: {id_question}')
 
         if config.ONLY_AI_SEARCH and self.__use_ai:
-            id_answer = 0
+            id_answer = ''
 
         if not id_answer and not self.__use_ai:
             error_msg = 'Не найден текстовый ответ при выключенном поиске AI'
@@ -569,15 +567,15 @@ class SynergyParser:
                 f'{raw_text_question} В ответе укажи только пропущенное слово',
                 self.__name_ai)
             text_answer = text_answer.replace('.', '')
-            # question_answer = {
-            #     'questionBlock': self.__current_discipline,
-            #     'question': raw_text_question,
-            #     'questionType': type_question,
-            #     'correctResponse': text_answer,
-            #     'created': datetime.now().date(),
-            # }
+            question_answer = {
+                'questionBlock': self.__current_discipline,
+                'question': raw_text_question,
+                'questionType': type_question,
+                'correctResponse': text_answer,
+                'created': datetime.now().date(),
+            }
 
-            # self.__questions_answers.append(question_answer)
+            self.__questions_answers.append(question_answer)
 
             if config.DEBUG:
                 print(f'Ответ AI:\n{text_answer}')
@@ -656,13 +654,15 @@ class SynergyParser:
         result = (need_skip, need_reload, error_msg)
         id_answer = ''
         id_question = 0
-        id_answer, id_question = self.__find_answer_for_choice(variants_question,
-                                                               type_question)
 
-        if not id_answer:
-            self.__question_block_id = 0
+        if self.__use_only_ai_search():
             id_answer, id_question = self.__find_answer_for_choice(variants_question,
                                                                    type_question)
+
+            if not id_answer:
+                self.__question_block_id = 0
+                id_answer, id_question = self.__find_answer_for_choice(variants_question,
+                                                                       type_question)
 
         if config.DEBUG:
             print(
@@ -773,13 +773,15 @@ class SynergyParser:
         result = (need_skip, need_reload, error_msg)
         id_answers = ''
         id_question = 0
-        id_answers, id_question = self.__find_answer_for_choose_multiple(variants_question,
-                                                                         type_question)
 
-        if not id_answers:
-            self.__question_block_id = 0
+        if self.__use_only_ai_search():
             id_answers, id_question = self.__find_answer_for_choose_multiple(variants_question,
                                                                              type_question)
+
+            if not id_answers:
+                self.__question_block_id = 0
+                id_answers, id_question = self.__find_answer_for_choose_multiple(variants_question,
+                                                                                 type_question)
 
         if config.DEBUG:
             print(
@@ -846,7 +848,7 @@ class SynergyParser:
 
     # Проверяет соответствие ответов из БД текущим ответам на странице и возвращает ответы в правильном порядке из БД
     # current_id_answers - текущий порядок ответов на странице
-    def __check_sorting_answers(self, answers: list, current_id_answers: list) -> tuple[str, int]:
+    def __check_sorting_answers(self, answers: list[str], current_id_answers: list) -> tuple[str, int]:
         result = ('', '')
 
         if len(answers) > 0:
@@ -880,8 +882,6 @@ class SynergyParser:
             if correct_id_answers:
                 if config.DEBUG:
                     print(f'ОТВЕТ НАШЕЛСЯ ПО ФРАЗЕ:\n{variant}')
-                    print(
-                        f'Найденный id ответа: {correct_response}\nНайденный id вопроса: {id_question}')
 
                 break
 
@@ -903,16 +903,20 @@ class SynergyParser:
         for test_answer in test_answers:
             current_id_answers.append(test_answer.locator(
                 'input').get_attribute('value'))
+        # **********************************************************
+        correct_id_answers = []
+        id_question = 0
 
-        correct_id_answers, id_question = self.__find_answer_for_order(variants_question,
-                                                                       type_question,
-                                                                       current_id_answers)
-
-        if current_id_answers != correct_id_answers:
-            self.__question_block_id = 0
+        if self.__use_only_ai_search():
             correct_id_answers, id_question = self.__find_answer_for_order(variants_question,
                                                                            type_question,
                                                                            current_id_answers)
+
+            if current_id_answers != correct_id_answers:
+                self.__question_block_id = 0
+                correct_id_answers, id_question = self.__find_answer_for_order(variants_question,
+                                                                               type_question,
+                                                                               current_id_answers)
 
         if config.DEBUG:
             print(
@@ -1025,14 +1029,17 @@ class SynergyParser:
         # сформируем список пар (кортежей) левой стороны и пустых клеток(локаторов) справа
         pair_left_right = [(left_side[i], right_side_empty[i])
                            for i in range(0, len(left_side))]
+        correct_response = ''
+        id_question = 0
 
-        correct_response, id_question = self.__find_answer_for_matching(variants_question,
-                                                                        type_question)
-
-        if not correct_response:
-            self.__question_block_id = 0
+        if self.__use_only_ai_search():
             correct_response, id_question = self.__find_answer_for_matching(variants_question,
                                                                             type_question)
+
+            if not correct_response:
+                self.__question_block_id = 0
+                correct_response, id_question = self.__find_answer_for_matching(variants_question,
+                                                                                type_question)
 
         if config.DEBUG:
             print(
@@ -1162,14 +1169,17 @@ class SynergyParser:
         need_skip = False
         need_reload = False
         result = (need_skip, need_reload, error_msg)
+        correct_response = ''
+        id_question = 0
 
-        correct_response, id_question = self.__find_answer_for_sequence(variants_question,
-                                                                        type_question)
-
-        if not correct_response:
-            self.__question_block_id = 0
+        if self.__use_only_ai_search():
             correct_response, id_question = self.__find_answer_for_sequence(variants_question,
                                                                             type_question)
+
+            if not correct_response:
+                self.__question_block_id = 0
+                correct_response, id_question = self.__find_answer_for_sequence(variants_question,
+                                                                                type_question)
 
         if config.DEBUG:
             print(
@@ -1301,14 +1311,17 @@ class SynergyParser:
         # сформируем список пар (кортежей) левой стороны и пустых клеток справа
         pair_left_right = [(left_side[i], right_side_empty[i])
                            for i in range(0, len(left_side))]
+        correct_response = ''
+        id_question = 0
 
-        correct_response, id_question = self.__find_answer_for_matchmultiple(variants_question,
-                                                                             type_question)
-
-        if not correct_response:
-            self.__question_block_id = 0
+        if self.__use_only_ai_search():
             correct_response, id_question = self.__find_answer_for_matchmultiple(variants_question,
                                                                                  type_question)
+
+            if not correct_response:
+                self.__question_block_id = 0
+                correct_response, id_question = self.__find_answer_for_matchmultiple(variants_question,
+                                                                                     type_question)
 
         if config.DEBUG:
             print(
@@ -1456,7 +1469,7 @@ class SynergyParser:
 
     # Возвращает кортеж со списоком, где первый элемент текст вопроса без переносов строк либо путь к картинке либо иностранный текст,
     # далее идет разбивка вопроса на фразы, если это не картинка сначала по чистому тексту потом по сырому с тегами
-    # а далее на отдельные слова не короче 5 символов по иностранному тексту или по тексту без тегов
+    # а далее на отдельные слова не короче 6 символов по иностранному тексту или по тексту без тегов
     # Второй элемент это сырой вопрос с тегами
     # Третий элемент кортежа сообщение об ошибке
     def __get_question(self) -> tuple[list[str], str, str]:
@@ -1512,24 +1525,21 @@ class SynergyParser:
                 clear_raw_text_question)
             variants_question.extend(phrases)
 
-            # и совсем уже отчаянный шаг, поиск по словам входящим в чистый текст, не короче 5 букв
+            # и совсем уже отчаянный шаг, поиск по словам входящим в чистый текст, не короче 6 букв
             # эти слова добавлю в конец списка, они будут проверяться в последнюю очередь
             words = [word for word in clear_only_text.split(
-                ' ') if len(word) > 4]
+                ' ') if len(word) > 5]
 
             if words:
                 variants_question.extend(words)
 
-            # # если в строке есть неразрывный пробел, то обрежу строку до него или до 15 символа
-            # index_end_nbsp = raw_text_question.find('&nbsp;')
-            # index_end = 15 if index_end_nbsp == -1 or index_end_nbsp > 15 else index_end_nbsp
+            # проверим еще раз наш список поисковых фраз на предмет слов короче 6 букв
+            variants_question = [word for word in variants_question if len(
+                word) > 5 and word[0] != '&']
 
-            # text_question = raw_text_question.replace('\n', '').replace('&gt;', '>').replace('&lt;', '<')
-            # variants_question.append(text_question)
-
-            # if len(raw_text_question) > index_end:
-            #     first_part_question = raw_text_question[0:index_end]
-            #     variants_question.append(first_part_question)
+            # оставлю только 5 вариантов фраз для поиска
+            if len(variants_question) > 5:
+                variants_question = variants_question[0:5]
 
         result = (variants_question, raw_text_question, error_msg)
 
@@ -1543,7 +1553,6 @@ class SynergyParser:
         total_questions = self.__test_info.get('questionsCount', -1)
 
         if current_question == -1 or total_questions == -1:
-            # self.__reload('Не удалось определить номера вопросов!')
             error_msg = 'Не удалось определить номера вопросов!'
             return error_msg
 
@@ -1551,7 +1560,7 @@ class SynergyParser:
 
         if config.DEBUG:
             print(
-                f'Текущий № вопроса: {current_question} всего вопросов: {total_questions} тест завершен: {self.__complete_test}')
+                f'Вопрос №: {current_question} из {total_questions}. Тест завершен: {self.__complete_test}')
 
         return error_msg
 
@@ -1742,6 +1751,11 @@ class SynergyParser:
             discipline = ''
 
         return discipline.strip()
+
+    # Если список __questions_answers содержит два и более элементов, значит в базе нет этих ответов и не стоит тратить время на их поиск
+    # лучше сразу переходить на поиск через базу AI и сам AI
+    def __use_only_ai_search(self) -> bool:
+        return len(self.__questions_answers) < 2 and self.__use_ai and self.__name_ai
 
     def __delete_wrong_symbols(self, file_name: str) -> str:
         if file_name[-1] == '.' or file_name[-1] == ' ':

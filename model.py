@@ -17,31 +17,28 @@ def create_proxies_db() -> None:
         """)
 
 
-def create_db_correct_answers() -> None:
-    with sq.connect(config.DB_CORRECT_ANSWERS_FILE_NAME) as con:
+def create_ai_answers_db() -> None:
+    with sq.connect(config.DB_AI_ANSWERS_FILE_NAME) as con:
         cur = con.cursor()
         cur.executescript("""
-        CREATE TABLE IF NOT EXISTS correct_answers(
+        CREATE TABLE IF NOT EXISTS question_blocks(
+        questionBlockId INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS question_answers(
         questionId INTEGER PRIMARY KEY AUTOINCREMENT,
-        questionBlock TEXT NOT NULL,
+        questionBlockId INTEGER NOT NULL,
         question TEXT NOT NULL,
         questionType TEXT NOT NULL,
         correctResponse TEXT NOT NULL,
-        created TEXT NOT NULL)
-        """)
-
-
-def create_db_incorrect_answers() -> None:
-    with sq.connect(config.DB_INCORRECT_ANSWERS_FILE_NAME) as con:
-        cur = con.cursor()
-        cur.executescript("""
-        CREATE TABLE IF NOT EXISTS incorrect_answers(
-        questionId INTEGER PRIMARY KEY AUTOINCREMENT,
-        questionBlock TEXT NOT NULL,
-        question TEXT NOT NULL,
-        questionType TEXT NOT NULL,
-        correctResponse TEXT NOT NULL,
-        created TEXT NOT NULL)
+        created TEXT NOT NULL,
+        FOREIGN KEY (questionBlockId) REFERENCES question_blocks(questionBlockId));
+        CREATE INDEX IF NOT EXISTS idx_question_answers_questionBlockId ON question_answers(questionBlockId);
+        CREATE TABLE IF NOT EXISTS incorrect_responses(
+        responseId INTEGER PRIMARY KEY AUTOINCREMENT,
+        questionId INTEGER NOT NULL,
+        incorrectResponse TEXT NOT NULL,
+        FOREIGN KEY (questionId) REFERENCES question_answers(responseId));
+        CREATE INDEX IF NOT EXISTS idx_incorrect_responses_questionId ON incorrect_responses(questionId)
         """)
 
 
@@ -214,18 +211,130 @@ def get_text_answer(identifier: str, id_question: int = 0) -> str:
     return text_answer
 
 
-# Запись ответа от AI в специальную базу ответов
+# ********************************************************************
+# Работа с базой AI которая постепенно формируется
+# ********************************************************************
+
+def get_question_block_id(cur: sq.Cursor, title: str) -> int:
+    question_block_id = 0
+    parameters = (title,)
+    cur.execute("""
+    SELECT questionBlockId FROM question_blocks 
+    WHERE title=?
+    """, parameters)
+    row = cur.fetchone()
+
+    if row:
+        question_block_id = row[0]
+
+    return question_block_id
+
+
+def get_question_id(cur: sq.Cursor, question: str, question_type: str, question_block_id: int) -> int:
+    question_id = 0
+    parameters = (question, question_type, question_block_id,)
+    cur.execute("""
+    SELECT questionId FROM question_answers 
+    WHERE question=? and questionType=? and questionBlockId=?
+    """, parameters)
+    row = cur.fetchone()
+
+    if row:
+        question_block_id = row[0]
+
+    return question_id
+
+
+# Запись верного ответа от AI в специальную базу ответов
 def save_correct_answer(question_answer: dict) -> None:
-    with sq.connect(config.DB_CORRECT_ANSWERS_FILE_NAME) as con:
-        parameters = (question_answer.get('questionBlock'),
-                      question_answer.get('question'),
-                      question_answer.get('questionType'),
-                      question_answer.get('correctResponse'),
-                      question_answer.get('created'),
-                      )
+    with sq.connect(config.DB_AI_ANSWERS_FILE_NAME) as con:
         cur = con.cursor()
-        cur.execute("""
-        INSERT INTO correct_answers (questionBlock, question, questionType, correctResponse, created) 
-        VALUES (?,?,?,?,?)
-        """, parameters)
-        con.commit()
+        title_discipline = question_answer.get('questionBlock')
+        question_block_id = get_question_block_id(cur, title_discipline)
+
+        if not question_block_id:
+            parameters = (title_discipline,)
+            cur.execute('INSERT INTO question_blocks (title) VALUES (?)',
+                        parameters)
+            con.commit()
+            question_block_id = get_question_block_id(cur, title_discipline)
+
+        question = question_answer.get('question')
+        question_type = question_answer.get('questionType')
+        question_id = get_question_id(cur, question,
+                                      question_type,
+                                      question_block_id)
+
+        if not question_id:
+            correct_response = question_answer.get('correctResponse')
+            created = question_answer.get('created')
+            parameters = (question, question_type,
+                          correct_response, question_block_id, created,)
+            cur.execute("""
+            INSERT INTO question_answers (question, questionType, correctResponse, questionBlockId, created)
+            VALUES (?,?,?,?,?)
+            """, parameters)
+            con.commit()
+
+
+def get_incorrect_response_id(cur: sq.Cursor, incorrect_response: str, question_id: int) -> int:
+    incorrect_response_id = 0
+    parameters = (question_id, incorrect_response,)
+    cur.execute("""
+    SELECT responseId FROM incorrect_responses 
+    WHERE questionId=? and incorrectResponse=?
+    """, parameters)
+    row = cur.fetchone()
+
+    if row:
+        incorrect_response_id = row[0]
+
+    return incorrect_response_id
+
+
+# Запись неверного ответа от AI в специальную таблицу ответов
+def save_incorrect_answer(question_answer: dict) -> None:
+    with sq.connect(config.DB_AI_ANSWERS_FILE_NAME) as con:
+        cur = con.cursor()
+        title_discipline = question_answer.get('questionBlock')
+        question_block_id = get_question_block_id(cur, title_discipline)
+
+        if not question_block_id:
+            parameters = (title_discipline,)
+            cur.execute('INSERT INTO question_blocks (title) VALUES (?)',
+                        parameters)
+            con.commit()
+            question_block_id = get_question_block_id(cur, title_discipline)
+
+        question = question_answer.get('question')
+        question_type = question_answer.get('questionType')
+        question_id = get_question_id(cur, question,
+                                      question_type,
+                                      question_block_id)
+
+        if not question_id:
+            correct_response = ''
+            created = question_answer.get('created')
+            parameters = (question, question_type,
+                          correct_response, question_block_id, created,)
+            cur.execute("""
+            INSERT INTO question_answers (question, questionType, correctResponse, questionBlockId, created)
+            VALUES (?,?,?,?,?)
+            """, parameters)
+            con.commit()
+            question_id = get_question_id(cur, question,
+                                          question_type,
+                                          question_block_id)
+
+        incorrect_response = question_answer.get('correctResponse')
+        incorrect_response_id = get_incorrect_response_id(cur,
+                                                          incorrect_response,
+                                                          question_id)
+
+        if not incorrect_response_id:
+            parameters = (incorrect_response, question_id,)
+            cur.execute("""
+            INSERT INTO incorrect_responses (incorrectResponse, questionId)
+            VALUES (?,?)
+            """, parameters)
+            con.commit()

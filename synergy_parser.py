@@ -47,6 +47,7 @@ class SynergyParser:
                                   """)
         self.__matching_question_types = MATCHING_QUESTION_TYPES
         self.__test_info = {}
+        self.__current_discipline = ''
         self.__question_block_id = 0
         self.__count_unfound_answers = 0
         self.__path_log_file = ''
@@ -126,9 +127,11 @@ class SynergyParser:
         try:
             self.page.on('load', self.__check_begin_test)
         except TimeoutError:
-            pass
+            if config.DEBUG:
+                print('Не удалось подписаться на события при запуске')
         except Error:
-            pass
+            if config.DEBUG:
+                print('Не удалось подписаться на события при запуске')
         finally:
             self.__pause()
 
@@ -171,7 +174,7 @@ class SynergyParser:
         self.__add_scripts_on_page()
 
         try:
-            # Если нашли кнопку идентификации теста, значит мы начинаем новый тест и нужно сбросить старые значения объекта парсера
+            # Если найдена кнопка идентификации теста, значит мы начинаем новый тест и нужно сбросить старые значения объекта парсера
             # не зависимо завершили мы прошлый тест или нет
             if self.page.locator('#cvsBtn').count() > 0:
                 self.__test_info = {}
@@ -180,7 +183,24 @@ class SynergyParser:
                 self.__path_log_file = ''
 
                 if config.DEBUG:
-                    print('Обнаружена кнопка идентификации начала теста!')
+                    print('Обнаружена кнопка идентификации начала теста')
+
+            # Если найдена кнопка начала теста, то получим наименование дисциплины из хлебных крошек, мы либо начинаем либо заканчиваем тест
+            if self.page.locator('#startPlayerBtn').count() > 0:
+                discipline = self.__get_name_discipline()
+
+                if discipline:
+                    self.__current_discipline = discipline
+
+                if config.DEBUG:
+                    print(
+                        f'Обнаружена кнопка начала теста по дисциплине: {self.__current_discipline}')
+
+                if self.__use_ai and self.__questions_answers:
+                    ai_search.check_and_save_result_test(self.page,
+                                                         self.__questions_answers)
+                    self.__questions_answers.clear()
+
         except Error:
             pass
 
@@ -212,11 +232,6 @@ class SynergyParser:
 
         if config.DEBUG:
             print('<<<<< Обнаружен вопрос >>>>>')
-
-        # error_msg = self.__find_server_errors()
-
-        # if error_msg:
-        #     return error_msg
 
         if not self.__path_log_file:
             error_msg = self.__create_log_file()
@@ -299,8 +314,7 @@ class SynergyParser:
 
         return error_msg
 
-    # Ожидание окончания парарлельного запуска функции __begin_autotest
-
+    # Ожидание окончания параллельного запуска функции __begin_autotest
     def __wait_finish_begin_autotest(self) -> None:
         count = 0
         timeout = 10
@@ -317,7 +331,6 @@ class SynergyParser:
     # делает паузу между ответами, если пауза меньше 10 сек, это не хорошо, а если более 29 сек,
     # то это превышает стандартный таймаут проверки на недогруз страницы 120 сек
     # паузу делаем в половину установленного таймаута, первую половину ждем перед поиском ответа на вопрос, вторую, перед нажатием кнопки отправки
-
     def __pause_for_answer(self) -> None:
         timeout_for_answer = self.__settings.get('timeout_for_answer',
                                                  config.MIN_TIMEOUT_FOR_ANSWER)
@@ -336,15 +349,6 @@ class SynergyParser:
         result = (test_info, error_msg)
 
         try:
-            discipline = self.page.locator(
-                'h1.player-discipline').text_content().strip()
-
-            if not discipline:
-                error_msg = 'Не найдено наименование предмета'
-                result = (test_info, error_msg)
-                return result
-
-            test_info['discipline'] = discipline
             self.page.locator('span.player-questions').wait_for()
             item = self.page.locator('span.player-questions').all()
 
@@ -565,15 +569,15 @@ class SynergyParser:
                 f'{raw_text_question} В ответе укажи только пропущенное слово',
                 self.__name_ai)
             text_answer = text_answer.replace('.', '')
-            question_answer = {
-                'questionBlock': self.__test_info['discipline'],
-                'question': raw_text_question,
-                'questionType': type_question,
-                'correctResponse': text_answer,
-                'created': datetime.now().date(),
-            }
+            # question_answer = {
+            #     'questionBlock': self.__current_discipline,
+            #     'question': raw_text_question,
+            #     'questionType': type_question,
+            #     'correctResponse': text_answer,
+            #     'created': datetime.now().date(),
+            # }
 
-            self.__questions_answers.append(question_answer)
+            # self.__questions_answers.append(question_answer)
 
             if config.DEBUG:
                 print(f'Ответ AI:\n{text_answer}')
@@ -699,7 +703,7 @@ class SynergyParser:
                 break
 
             question_answer = {
-                'questionBlock': self.__test_info['discipline'],
+                'questionBlock': self.__current_discipline,
                 'question': raw_text_question,
                 'questionType': type_question,
                 'correctResponse': id_answer,
@@ -817,7 +821,7 @@ class SynergyParser:
             id_answers = id_answers[0:-1]
 
             question_answer = {
-                'questionBlock': self.__test_info['discipline'],
+                'questionBlock': self.__current_discipline,
                 'question': raw_text_question,
                 'questionType': type_question,
                 'correctResponse': id_answers,
@@ -942,7 +946,7 @@ class SynergyParser:
                 print(f'Ответ AI:\n{ai_answer}')
 
             question_answer = {
-                'questionBlock': self.__test_info['discipline'],
+                'questionBlock': self.__current_discipline,
                 'question': raw_text_question,
                 'questionType': type_question,
                 'correctResponse': ai_answer,
@@ -1073,7 +1077,7 @@ class SynergyParser:
                 correct_response = ai_answer
 
             question_answer = {
-                'questionBlock': self.__get_name_discipline(),
+                'questionBlock': self.__current_discipline,
                 'question': raw_text_question,
                 'questionType': type_question,
                 'correctResponse': correct_response,
@@ -1207,7 +1211,7 @@ class SynergyParser:
             correct_response = correct_response[0:-1]
 
             question_answer = {
-                'questionBlock': self.__test_info['discipline'],
+                'questionBlock': self.__current_discipline,
                 'question': raw_text_question,
                 'questionType': type_question,
                 'correctResponse': correct_response,
@@ -1366,7 +1370,7 @@ class SynergyParser:
                 correct_response = ai_answer
 
             question_answer = {
-                'questionBlock': self.__test_info['discipline'],
+                'questionBlock': self.__current_discipline,
                 'question': raw_text_question,
                 'questionType': type_question,
                 'correctResponse': correct_response,
@@ -1616,8 +1620,6 @@ class SynergyParser:
         finish = False
         error_msg = ''
         result = (finish, error_msg)
-        # тут должна быть проверка ответов на форме завершения теста и запись в БД
-        self.__questions_answers.clear()
 
         if self.__manual_presskey:
             return result
@@ -1663,6 +1665,7 @@ class SynergyParser:
         self.__logging('<<<<< Тест успешно завершен! >>>>>')
         self.__path_log_file = ''
         finish = True
+        # self.__questions_answers.clear()
         result = (finish, error_msg)
         return result
 
@@ -1696,7 +1699,7 @@ class SynergyParser:
             error_msg = 'Не удалось определить имя студента!'
             return error_msg
 
-        discipline = self.__get_name_discipline()
+        discipline = self.__current_discipline
         student = student.strip()
         found_files = sorted(Path(log_dir).glob(
             f'{student}-{discipline}*.log'))
@@ -1726,11 +1729,16 @@ class SynergyParser:
         discipline = ''
 
         try:
-            discipline = self.page.locator(
-                'h1.player-discipline').text_content()
+            breadcrumbs = self.page.locator('div[id="breadcrumbs"] a').all()
         except TimeoutError:
             discipline = ''
         except Error:
+            discipline = ''
+
+        if len(breadcrumbs) > 2:
+            discipline = breadcrumbs[2].text_content()
+
+        if 'Мероприятие дисциплины' in discipline:
             discipline = ''
 
         return discipline.strip()
@@ -1745,39 +1753,7 @@ class SynergyParser:
     def __alert(self, message: str) -> None:
         self.page.evaluate(f'() => alert("{message}");')
 
-    # Найдем и переберем таблицу последнего результата теста, для определения верных и не верных ответов
-    def __find_last_result(self) -> None:
-        last_result = self.page.locator('table.table-list tbody').all()[-1]
-        button_statistic = last_result.locator('#statistic')
-
-        try:
-            button_statistic.focus()
-            button_statistic.dispatch_event('click')
-        except TimeoutError:
-            error_msg = 'Не найдена ссылка результатов теста'
-            self.__logging(error_msg)
-
-        row_results = self.page.locator('table.table-corpus tbody tr').all()
-
-        try:
-            for result in row_results:
-                question_text = result.locator('td')[1].inner_text()
-                result_text = result.locator('td')[3].inner_text()
-                self.__save_result_test(question_text, result_text)
-        except TimeoutError:
-            error_msg = 'Не найдены результаты теста на странице'
-            self.__logging(error_msg)
-
-    # запишем результат теста в базу правильных или не правильных ответов
-    def __save_result_test(self, question_text: str, result_text: str) -> None:
-        if 'Не верно' in result_text:
-            pass
-        else:
-            pass
-
     def stop(self) -> None:
-        # self.page.remove_listener('load', self.__check_begin_test)
-        # self.page.remove_listener('dialog')
         self.__free_used_proxy()
         self.__context.close()
         self.__browser.close()

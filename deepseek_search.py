@@ -27,11 +27,6 @@ def ai_search(question: str, name_ai: str) -> str:
 
 def get_text_answer(page: Page) -> str:
     raw_text_question = ''
-    question_images = have_image_in_question(page)
-
-    # если в вопросе есть картинка, то надо сделать скрин для DeepSeek
-    if question_images:
-        return raw_text_question
 
     target_html = page.locator('form[id="player-assessments-form"]')
     question = target_html.locator('span.test-question-text-2')
@@ -44,11 +39,3 @@ def get_text_answer(page: Page) -> str:
         return raw_text_question
 
     return raw_text_question
-
-
-def have_image_in_question(page: Page) -> bool:
-    target_html = page.locator('form[id="player-assessments-form"]')
-    question = target_html.locator('span.test-question-text-2')
-    question_images = question.locator('p img').all()
-
-    return True if question_images else False

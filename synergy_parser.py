@@ -532,7 +532,7 @@ class SynergyParser:
         id_answer = ''
         id_question = 0
 
-        if self.__use_only_ai_search():
+        if not self.__use_only_ai_search():
             id_answer, id_question = self.__find_answer_for_textentry(variants_question,
                                                                       type_question)
 
@@ -562,10 +562,22 @@ class SynergyParser:
         elif id_answer:
             text_answer = model.get_text_answer(id_answer, id_question)
         elif not id_answer and self.__use_ai:
+            text_answer = ''
+            have_image = ai_search.have_image_in_question(self.page)
             # ai_answer, error_msg = ai_search.ai_search('Ты YandexGPT 5 или YandexGPT 4?', self.__name_ai)
-            text_answer, error_msg = ai_search.ai_search(
-                f'{raw_text_question} В ответе укажи только пропущенное слово',
-                self.__name_ai)
+
+            if have_image:
+                error_msg = 'Вопрос пропущен из-за наличия картинки при поиске AI!'
+                need_skip = True
+                need_reload = False
+                self.__count_unfound_answers += 1
+                result = (need_skip, need_reload, error_msg)
+                return result
+
+            raw_text_question = ai_search.get_text_answer(self.page,
+                                                          self.__name_ai)
+            text_answer, error_msg = ai_search.ai_search(f'{raw_text_question} В ответе укажи только пропущенное слово',
+                                                         self.__name_ai)
             text_answer = text_answer.replace('.', '')
             question_answer = {
                 'questionBlock': self.__current_discipline,
@@ -655,7 +667,7 @@ class SynergyParser:
         id_answer = ''
         id_question = 0
 
-        if self.__use_only_ai_search():
+        if not self.__use_only_ai_search():
             id_answer, id_question = self.__find_answer_for_choice(variants_question,
                                                                    type_question)
 
@@ -672,17 +684,27 @@ class SynergyParser:
             id_answer = ''
 
         if not id_answer and not self.__use_ai:
-            error_msg = 'Не найден единственный правильный ответ!'
+            error_msg = 'Не найден единственный правильный ответ при выключенном AI!'
             need_skip = True
             need_reload = False
             self.__count_unfound_answers += 1
             result = (need_skip, need_reload, error_msg)
             return result
         elif not id_answer and self.__use_ai:
+            have_image = ai_search.have_image_in_question(self.page)
+
+            if have_image:
+                error_msg = 'Вопрос пропущен из-за наличия картинки при поиске AI!'
+                need_skip = True
+                need_reload = False
+                self.__count_unfound_answers += 1
+                result = (need_skip, need_reload, error_msg)
+                return result
+
             raw_text_question = ai_search.get_text_answer(self.page,
                                                           self.__name_ai)
-            variants_answers = ai_search.get_variants_answers_for_choice(
-                self.page, False)
+            variants_answers = ai_search.get_variants_answers_for_choice(self.page,
+                                                                         False)
             ai_answer, error_msg = ai_search.ai_search(
                 f'{raw_text_question} Варианты ответа в JSON: {variants_answers} В ответе оставь только правильный элемент JSON',
                 self.__name_ai)
@@ -774,7 +796,7 @@ class SynergyParser:
         id_answers = ''
         id_question = 0
 
-        if self.__use_only_ai_search():
+        if not self.__use_only_ai_search():
             id_answers, id_question = self.__find_answer_for_choose_multiple(variants_question,
                                                                              type_question)
 
@@ -798,10 +820,20 @@ class SynergyParser:
             result = (need_skip, need_reload, error_msg)
             return result
         elif not id_answers and self.__use_ai:
+            have_image = ai_search.have_image_in_question(self.page)
+
+            if have_image:
+                error_msg = 'Вопрос пропущен из-за наличия картинки при поиске AI!'
+                need_skip = True
+                need_reload = False
+                self.__count_unfound_answers += 1
+                result = (need_skip, need_reload, error_msg)
+                return result
+
             raw_text_question = ai_search.get_text_answer(self.page,
                                                           self.__name_ai)
-            variants_answers = ai_search.get_variants_answers_for_choice(
-                self.page, True)
+            variants_answers = ai_search.get_variants_answers_for_choice(self.page,
+                                                                         True)
             ai_answer, error_msg = ai_search.ai_search(
                 f'{raw_text_question} варианты ответа: {variants_answers} Оставь в JSON только верные элементы',
                 self.__name_ai)
@@ -907,7 +939,7 @@ class SynergyParser:
         correct_id_answers = []
         id_question = 0
 
-        if self.__use_only_ai_search():
+        if not self.__use_only_ai_search():
             correct_id_answers, id_question = self.__find_answer_for_order(variants_question,
                                                                            type_question,
                                                                            current_id_answers)
@@ -929,7 +961,7 @@ class SynergyParser:
             correct_id_answers = []
 
         if current_id_answers != correct_id_answers and not self.__use_ai:
-            error_msg = 'Обнаружен неверный порядок ответов! При выключенном AI'
+            error_msg = 'Вопрос пропущен из-за наличия картинки при поиске AI!'
             need_skip = True
             need_reload = False
             self.__count_unfound_answers += 1
@@ -1032,7 +1064,7 @@ class SynergyParser:
         correct_response = ''
         id_question = 0
 
-        if self.__use_only_ai_search():
+        if not self.__use_only_ai_search():
             correct_response, id_question = self.__find_answer_for_matching(variants_question,
                                                                             type_question)
 
@@ -1054,6 +1086,8 @@ class SynergyParser:
             id_left = left_side[i].get_attribute('id')
             id_bottom = bottom_side[i].get_attribute('id')
             default_response += f'{id_left}|{id_bottom},'
+        
+        default_response = default_response[0:-1]
         # **********************************************************************************************
 
         if config.ONLY_AI_SEARCH and self.__use_ai:
@@ -1064,24 +1098,31 @@ class SynergyParser:
                 'Не найден ответ для сопоставления при выключенном AI. Будет применен ответ по умолчанию.')
             correct_response = default_response
         elif not correct_response and self.__use_ai:
+            have_image = ai_search.have_image_in_question(self.page)
             raw_text_question = ai_search.get_text_answer(self.page,
                                                           self.__name_ai)
-            left_answers, bottom_answers = ai_search.get_variants_answers_for_match(
-                self.page)
-            ai_answer, error_msg = ai_search.ai_search(
-                f"""{raw_text_question} Первый JSON: {left_answers} второй JSON: {bottom_answers}. 
-                Установи соответствие между двумя JSON, ответ дай без пробелов в виде одной строки: ключ|ключ,""",
-                self.__name_ai)
 
-            if config.DEBUG:
-                print(f'Ответ AI:\n{ai_answer}')
-
-            if '|' not in ai_answer:
+            if have_image:
                 self.__logging(
-                    f'{error_msg} Будет применен ответ по умолчанию.')
+                    'Найдена картинка в вопросе сопоставления при включенном AI. Будет применен ответ по умолчанию.')
                 correct_response = default_response
             else:
-                correct_response = ai_answer
+                left_answers, bottom_answers = ai_search.get_variants_answers_for_match(
+                    self.page)
+                ai_answer, error_msg = ai_search.ai_search(
+                    f"""{raw_text_question} Первый JSON: {left_answers} второй JSON: {bottom_answers}. 
+                    Установи соответствие между двумя JSON, ответ дай без пробелов в виде одной строки: ключ|ключ,""",
+                    self.__name_ai)
+
+                if config.DEBUG:
+                    print(f'Ответ AI:\n{ai_answer}')
+
+                if '|' not in ai_answer:
+                    self.__logging(
+                        f'{error_msg} Будет применен ответ по умолчанию.')
+                    correct_response = default_response
+                else:
+                    correct_response = ai_answer
 
             question_answer = {
                 'questionBlock': self.__current_discipline,
@@ -1172,7 +1213,7 @@ class SynergyParser:
         correct_response = ''
         id_question = 0
 
-        if self.__use_only_ai_search():
+        if not self.__use_only_ai_search():
             correct_response, id_question = self.__find_answer_for_sequence(variants_question,
                                                                             type_question)
 
@@ -1196,6 +1237,16 @@ class SynergyParser:
             result = (need_skip, need_reload, error_msg)
             return result
         elif not correct_response and self.__use_ai:
+            have_image = ai_search.have_image_in_question(self.page)
+
+            if have_image:
+                error_msg = 'Вопрос пропущен из-за наличия картинки при поиске AI!'
+                need_skip = True
+                need_reload = False
+                self.__count_unfound_answers += 1
+                result = (need_skip, need_reload, error_msg)
+                return result
+
             raw_text_question = ai_search.get_text_answer(self.page,
                                                           self.__name_ai)
             variants_answers = ai_search.get_variants_answers_for_sort_sequence(
@@ -1314,7 +1365,7 @@ class SynergyParser:
         correct_response = ''
         id_question = 0
 
-        if self.__use_only_ai_search():
+        if not self.__use_only_ai_search():
             correct_response, id_question = self.__find_answer_for_matchmultiple(variants_question,
                                                                                  type_question)
 
@@ -1362,25 +1413,32 @@ class SynergyParser:
                 'Не найден ответ для множественного сопоставления при выключенном AI. Будет применен ответ по умолчанию.')
             correct_response = default_response
         if not correct_response and self.__use_ai:
+            have_image = ai_search.have_image_in_question(self.page)
             raw_text_question = ai_search.get_text_answer(self.page,
                                                           self.__name_ai)
-            left_answers, bottom_answers = ai_search.get_variants_answers_for_match_multiple(
-                self.page)
-            ai_answer, error_msg = ai_search.ai_search(
-                f"""{raw_text_question} Первый JSON: {left_answers} второй JSON: {bottom_answers}. 
-                Установи связь между элементами двух JSON. Каждому элементу первого JSON может
-                  соответствовать несколько элементов второго JSON. Ответ дай без пробелов в виде одной строки по шаблону: ключ|ключ;ключ,""",
-                self.__name_ai)
 
-            if config.DEBUG:
-                print(f'Ответ AI:\n{ai_answer}')
-
-            if '|' not in ai_answer or len(ai_answer) != len(default_response):
+            if have_image:
                 self.__logging(
-                    f'{error_msg} Будет применен ответ по умолчанию.')
+                    'Найдена картинка в вопросе множественного сопоставления при включенном AI. Будет применен ответ по умолчанию.')
                 correct_response = default_response
             else:
-                correct_response = ai_answer
+                left_answers, bottom_answers = ai_search.get_variants_answers_for_match_multiple(
+                    self.page)
+                ai_answer, error_msg = ai_search.ai_search(
+                    f"""{raw_text_question} Первый JSON: {left_answers} второй JSON: {bottom_answers}. 
+                    Установи связь между элементами двух JSON. Каждому элементу первого JSON может
+                    соответствовать несколько элементов второго JSON. Ответ дай без пробелов в виде одной строки по шаблону: ключ|ключ;ключ,""",
+                    self.__name_ai)
+
+                if config.DEBUG:
+                    print(f'Ответ AI:\n{ai_answer}')
+
+                if '|' not in ai_answer or len(ai_answer) != len(default_response):
+                    self.__logging(
+                        f'{error_msg} Будет применен ответ по умолчанию.')
+                    correct_response = default_response
+                else:
+                    correct_response = ai_answer
 
             question_answer = {
                 'questionBlock': self.__current_discipline,
@@ -1755,7 +1813,7 @@ class SynergyParser:
     # Если список __questions_answers содержит два и более элементов, значит в базе нет этих ответов и не стоит тратить время на их поиск
     # лучше сразу переходить на поиск через базу AI и сам AI
     def __use_only_ai_search(self) -> bool:
-        return len(self.__questions_answers) < 2 and self.__use_ai and self.__name_ai
+        return len(self.__questions_answers) > 1 and self.__use_ai and self.__name_ai
 
     def __delete_wrong_symbols(self, file_name: str) -> str:
         if file_name[-1] == '.' or file_name[-1] == ' ':

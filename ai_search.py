@@ -31,6 +31,14 @@ def get_text_answer(page: Page, name_ai: str) -> str:
     return raw_text_question
 
 
+def have_image_in_question(page: Page) -> bool:
+    target_html = page.locator('form[id="player-assessments-form"]')
+    question = target_html.locator('span.test-question-text-2')
+    question_images = question.locator('p img').all()
+
+    return True if question_images else False
+
+
 def get_variants_answers_for_choice(page: Page, choice_multiple: bool) -> str:
     result = ''
     target_html = page.locator('form[id="player-assessments-form"]')

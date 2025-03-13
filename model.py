@@ -29,6 +29,7 @@ def create_ai_answers_db() -> None:
         CREATE TABLE IF NOT EXISTS question_blocks(
         questionBlockId INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS idx_question_blocks_title ON question_blocks(title);
         CREATE TABLE IF NOT EXISTS question_answers(
         questionId INTEGER PRIMARY KEY AUTOINCREMENT,
         questionBlockId INTEGER NOT NULL,
@@ -38,6 +39,8 @@ def create_ai_answers_db() -> None:
         created TEXT NOT NULL,
         FOREIGN KEY (questionBlockId) REFERENCES question_blocks(questionBlockId));
         CREATE INDEX IF NOT EXISTS idx_question_answers_questionBlockId ON question_answers(questionBlockId);
+        CREATE INDEX IF NOT EXISTS idx_question_answers_question ON question_answers(question);
+        CREATE INDEX IF NOT EXISTS idx_question_answers_questionType ON question_answers(questionType);
         CREATE TABLE IF NOT EXISTS incorrect_responses(
         responseId INTEGER PRIMARY KEY AUTOINCREMENT,
         questionId INTEGER NOT NULL,
@@ -125,25 +128,6 @@ def get_unused_proxy() -> dict:
 # ******************************
 
 
-#  НЕИСПОЛЬЗУЕТСЯ находит id блока вопросов по наименованию, этот id нужен для точного нахождения вопроса
-def get_question_block_id(title: str) -> int:
-    question_block_id = 0
-
-    with sq.connect(config.DB_ANSWERS_FILE_NAME) as con:
-        parameters = (f'{title}*',)
-        cur = con.cursor()
-        cur.execute("""
-        SELECT questionBlockId FROM question_blocks 
-        WHERE title GLOB ?
-        """, parameters)
-        row = cur.fetchone()
-
-        if row:
-            question_block_id = row[0]
-
-    return question_block_id
-
-
 # НЕИСПОЛЬЗУЕТСЯ Функция для ситуации когда тип вопроса - choice - то есть нужно выбрать только один правильный ответ из списка.
 # проверяет переданный id ответа в таблице вопросов, где уже указан id верного ответа и полный текст вопроса с html тегами
 def check_answer(question: str, response: str) -> bool:
@@ -219,6 +203,29 @@ def get_text_answer(identifier: str, id_question: int = 0) -> str:
 # ********************************************************************
 # Работа с базой AI которая постепенно формируется
 # ********************************************************************
+
+def get_correct_answer_info_from_ai_answers(question: str, type_question: str, discipline: str) -> list[tuple]:
+    answer_info = []
+
+    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:
+        question_block_id = get_question_block_id(cur, discipline)
+
+        if not question_block_id:
+            return answer_info
+
+        parameters = ('', question, type_question, question_block_id)
+        cur = con.cursor()
+        cur.execute("""
+        SELECT correctResponse, questionId, questionBlockId FROM questions 
+        WHERE correctResponse!=? AND question=? AND questionType=? AND questionBlockId=?
+        """, parameters)
+        rows = cur.fetchall()
+
+        if rows:
+            answer_info = rows
+
+    return answer_info
+
 
 def get_question_block_id(cur: sq.Cursor, title: str) -> int:
     question_block_id = 0

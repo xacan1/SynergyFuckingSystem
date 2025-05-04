@@ -58,6 +58,7 @@ class SynergyParser:
         self.__set_hotkey()
         self.__begin_autotest_running = False
         self.__use_ai = self.__settings.get('use_ai', 0)
+        self.__only_ai_search = self.__settings.get('only_ai_search', 0)
         self.__name_ai = self.__settings.get('name_ai', '')
         self.__questions_answers = []
 
@@ -545,7 +546,7 @@ class SynergyParser:
             print(
                 f'Найденный id ответа: {id_answer}\nНайденный id вопроса: {id_question}')
 
-        if config.ONLY_AI_SEARCH and self.__use_ai:
+        if self.__only_ai_search and self.__use_ai:
             id_answer = ''
 
         if not id_answer and not self.__use_ai:
@@ -680,7 +681,7 @@ class SynergyParser:
             print(
                 f'Найденный id ответа: {id_answer}\nНайденный id вопроса: {id_question}')
 
-        if config.ONLY_AI_SEARCH and self.__use_ai:
+        if self.__use_only_ai_search():
             id_answer = ''
 
         if not id_answer and not self.__use_ai:
@@ -706,7 +707,7 @@ class SynergyParser:
             variants_answers = ai_search.get_variants_answers_for_choice(self.page,
                                                                          False)
             ai_answer, error_msg = ai_search.ai_search(
-                f'{raw_text_question} Варианты ответа в JSON: {variants_answers} В ответе оставь только правильный элемент JSON',
+                f'{raw_text_question} Варианты ответа в JSON: {variants_answers} В ответе оставь только правильный JSON',
                 self.__name_ai)
 
             if config.DEBUG:
@@ -809,7 +810,7 @@ class SynergyParser:
             print(
                 f'Найденные id для ответа: {id_answers}\nНайденный id вопроса: {id_question}')
 
-        if config.ONLY_AI_SEARCH and self.__use_ai:
+        if self.__only_ai_search and self.__use_ai:
             id_answers = ''
 
         if not id_answers and not self.__use_ai:
@@ -957,8 +958,8 @@ class SynergyParser:
         # в любом случае считаем порядок по умолчанию верным для сортировки
         correct_id_answers = current_id_answers
 
-        if config.ONLY_AI_SEARCH and self.__use_ai:
-            correct_id_answers = []
+        # if self.__only_ai_search and self.__use_ai:
+        #     correct_id_answers = []
 
         if current_id_answers != correct_id_answers and not self.__use_ai:
             error_msg = 'Вопрос пропущен из-за наличия картинки при поиске AI!'
@@ -1086,11 +1087,11 @@ class SynergyParser:
             id_left = left_side[i].get_attribute('id')
             id_bottom = bottom_side[i].get_attribute('id')
             default_response += f'{id_left}|{id_bottom},'
-        
+
         default_response = default_response[0:-1]
         # **********************************************************************************************
 
-        if config.ONLY_AI_SEARCH and self.__use_ai:
+        if self.__only_ai_search and self.__use_ai:
             correct_response = ''
 
         if not correct_response and not self.__use_ai:
@@ -1111,7 +1112,7 @@ class SynergyParser:
                     self.page)
                 ai_answer, error_msg = ai_search.ai_search(
                     f"""{raw_text_question} Первый JSON: {left_answers} второй JSON: {bottom_answers}. 
-                    Установи соответствие между двумя JSON, ответ дай без пробелов в виде одной строки: ключ|ключ,""",
+                    Установи соответствие между двумя JSON, ответ дай без рассуждений и пробелов в виде одной строки: ключ|ключ,""",
                     self.__name_ai)
 
                 if config.DEBUG:
@@ -1226,7 +1227,7 @@ class SynergyParser:
             print(
                 f'Найденный ответ: {correct_response}\nНайденный id вопроса: {id_question}')
 
-        if config.ONLY_AI_SEARCH and self.__use_ai:
+        if self.__only_ai_search and self.__use_ai:
             correct_response = ''
 
         if not correct_response and not self.__use_ai:
@@ -1405,7 +1406,7 @@ class SynergyParser:
         # 6Oj9|8GZi;Bqng;eO5U,d1jK|2SBf;B2xf;jf6o,wx9r|ZqR2;eUy3;gmkq;iNmW
         # **********************************************************************************************
 
-        if config.ONLY_AI_SEARCH and self.__use_ai:
+        if self.__only_ai_search and self.__use_ai:
             correct_response = ''
 
         if not correct_response and not self.__use_ai:
@@ -1427,7 +1428,7 @@ class SynergyParser:
                 ai_answer, error_msg = ai_search.ai_search(
                     f"""{raw_text_question} Первый JSON: {left_answers} второй JSON: {bottom_answers}. 
                     Установи связь между элементами двух JSON. Каждому элементу первого JSON может
-                    соответствовать несколько элементов второго JSON. Ответ дай без пробелов в виде одной строки по шаблону: ключ|ключ;ключ,""",
+                    соответствовать несколько элементов второго JSON. Ответ дай без рассуждений и без пробелов в виде одной строки по шаблону: ключ|ключ;ключ,""",
                     self.__name_ai)
 
                 if config.DEBUG:
@@ -1501,6 +1502,10 @@ class SynergyParser:
     # проверяет, нужно ли пропустить тест если требуется сделать фиксированное число ошибок под конец теста или страница зациклена в перезагрузке
     def __need_skip_question(self) -> bool:
         result = False
+
+        if self.__use_only_ai_search():
+            return result
+
         questions_count = self.__test_info.get('questionsCount', 0)
         current_question = self.__test_info.get('item', 0)
         questions_unanswered = self.__test_info.get('questionsUnanswered', 0)
@@ -1813,7 +1818,15 @@ class SynergyParser:
     # Если список __questions_answers содержит два и более элементов, значит в базе нет этих ответов и не стоит тратить время на их поиск
     # лучше сразу переходить на поиск через базу AI и сам AI
     def __use_only_ai_search(self) -> bool:
-        return len(self.__questions_answers) > 1 and self.__use_ai and self.__name_ai
+        result  = False
+
+        if self.__only_ai_search:
+            if self.__use_ai and self.__name_ai:
+                result = True
+        else:
+            result = len(self.__questions_answers) > 1 and self.__use_ai and self.__name_ai
+
+        return result
 
     def __delete_wrong_symbols(self, file_name: str) -> str:
         if file_name[-1] == '.' or file_name[-1] == ' ':

@@ -13,7 +13,7 @@ def ai_search(question: str) -> str:
         ai_answer = result[0].text
         ai_answer = ai_answer.replace('`', '')
 
-    return ai_answer
+    return ai_answer.strip()
 
 
 def get_text_answer(page: Page) -> str:

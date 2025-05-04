@@ -22,7 +22,7 @@ def ai_search(question: str, name_ai: str) -> str:
     else:
         ai_answer = ai_answer.strip().replace('`', '').replace('json', '')
 
-    return ai_answer
+    return ai_answer.strip()
 
 
 def get_text_answer(page: Page) -> str:

@@ -37,7 +37,7 @@ class SynergyParser:
                                                                '--start-maximized'],
                                                            ignore_default_args=[
                                                                '--enable-automation'],
-                                                           proxy=self.__get_proxy_settings())
+                                                           proxy=self.__get_proxy_settings())  # type: ignore
         self.__context = self.__browser.new_context(user_agent=self.ua.random,
                                                     no_viewport=True)
         self.__context.grant_permissions(permissions=['camera'])
@@ -122,11 +122,11 @@ class SynergyParser:
         self.page.goto(self.start_url)
 
         self.page.on('dialog', lambda dialog: print(
-            f'{dialog.message}') if config.DEBUG else ...)
+            f'{dialog.message}') if config.DEBUG else ...)  # type: ignore
         self.__check_free_proxy()
 
         try:
-            self.page.on('load', self.__check_begin_test)
+            self.page.on('load', self.__check_begin_test)  # type: ignore
         except TimeoutError:
             if config.DEBUG:
                 print('Не удалось подписаться на события при запуске')
@@ -221,7 +221,7 @@ class SynergyParser:
             self.__reload(error_msg)
 
     # начинаем автотест на стандартной странице теста
-    def __begin_autotest(self) -> str:
+    def __begin_autotest(self) -> str:  # type: ignore
         error_msg = ''
         self.__begin_autotest_running = True
 
@@ -352,7 +352,8 @@ class SynergyParser:
                 result = (test_info, error_msg)
                 return result
             else:
-                value = item[0].text_content().replace('Вопрос', '').strip()
+                value = item[0].text_content().replace( # type: ignore
+                    'Вопрос', '').strip() 
 
                 if value.isdecimal():
                     test_info['item'] = int(value)
@@ -364,7 +365,7 @@ class SynergyParser:
                 result = (test_info, error_msg)
                 return result
             else:
-                value = questions_count[0].text_content().replace(
+                value = questions_count[0].text_content().replace(  # type: ignore
                     'из', '').strip()
 
                 if value.isdecimal():
@@ -377,7 +378,7 @@ class SynergyParser:
                 result = (test_info, error_msg)
                 return result
             else:
-                value = questions_unanswered[0].text_content().replace(
+                value = questions_unanswered[0].text_content().replace(  # type: ignore
                     'ПРОПУЩЕНО:', '').strip()
 
                 if value.isdecimal():
@@ -750,6 +751,17 @@ class SynergyParser:
 
         return result
 
+    # Выбирает ответ из списка по порядку и сверяется с базой неверных ответов
+    def __random_answer_choice(self):
+        radio_buttons = self.page.locator('input').all()
+        
+        # for radio_button in radio_buttons:
+        #     # тут надо найти в базе неправильных ответов все варианты и выбрать тот которого еще нет
+        #     response = radio_button.get_attribute('value')
+        #     question_id = model.get_question_id()
+        #     model.get_incorrect_response_id(response, )
+        #     # radio_button = self.page.locator(f'input[value="{id_answer}"]')
+
     # Проверяет правильность ответов и выбирает подходящий, когда их несколько в БД на один текст вопроса
     def __check_multiple_answers(self, answers: list) -> tuple[str, int]:
         result = ('', 0)
@@ -900,7 +912,7 @@ class SynergyParser:
                     result = (id_answers, id_question)
                     break
 
-        return result
+        return result  # type: ignore
 
     def __find_answer_for_order(self, variants_question: list[str], type_question: str, current_id_answers: list) -> tuple[list[str], int]:
         correct_id_answers = []
@@ -908,7 +920,7 @@ class SynergyParser:
 
         for variant in variants_question:
             answers = self.__find_answer_by_text(variant, type_question)
-            correct_response, id_question = self.__check_sorting_answers(answers,
+            correct_response, id_question = self.__check_sorting_answers(answers,  # type: ignore
                                                                          current_id_answers)
             correct_id_answers = correct_response.split(',')
 
@@ -1187,7 +1199,7 @@ class SynergyParser:
                     result = (id_answers, id_question)
                     break
 
-        return result
+        return result  # type: ignore
 
     def __find_answer_for_sequence(self, variants_question: list[str], type_question: str) -> tuple[str, int]:
         id_answers = ''
@@ -1195,7 +1207,8 @@ class SynergyParser:
 
         for variant in variants_question:
             answers = self.__find_answer_by_text(variant, type_question)
-            id_answers, id_question = self.__check_sequence_answers(answers)
+            id_answers, id_question = self.__check_sequence_answers(
+                answers)  # type: ignore
 
             if id_answers:
                 if config.DEBUG:
@@ -1495,7 +1508,7 @@ class SynergyParser:
 
         answers = model.get_correct_answer_info(text_variant,
                                                 type_question,
-                                                self.__question_block_id)
+                                                self.__question_block_id)  # type: ignore
 
         return answers
 
@@ -1567,13 +1580,15 @@ class SynergyParser:
             only_text = question.text_content()
 
             # Первым в списке пусть будет сырой иностранный текст если он есть конечно
-            if service.find_latinian_symbols(only_text):
-                foreign_text = service.get_only_foreign_text(only_text)
+            if service.find_latinian_symbols(only_text):  # type: ignore
+                foreign_text = service.get_only_foreign_text(
+                    only_text)  # type: ignore
                 variants_question.append(foreign_text)
 
             # Вторым в списке вопросов пусть будет чистый текст вопроса без тегов разделенный на фразы
             # теперь заменю мнемоники HTML на их коды
-            clear_only_text = service.replace_mnemonics_html(only_text)
+            clear_only_text = service.replace_mnemonics_html(
+                only_text)  # type: ignore
             clear_only_text = clear_only_text.replace('\n', '')
 
             # тут я разобью чистый текст на фразы по запятым и неразрывному пробелу
@@ -1772,7 +1787,7 @@ class SynergyParser:
             return error_msg
 
         discipline = self.__current_discipline
-        student = student.strip()
+        student = student.strip()  # type: ignore
         found_files = sorted(Path(log_dir).glob(
             f'{student}-{discipline}*.log'))
         name_log_file = ''
@@ -1810,29 +1825,30 @@ class SynergyParser:
         if len(breadcrumbs) > 2:
             discipline = breadcrumbs[2].text_content()
 
-        if 'Мероприятие дисциплины' in discipline:
+        if 'Мероприятие дисциплины' in discipline:  # type: ignore
             discipline = ''
 
-        return discipline.strip()
+        return discipline.strip()  # type: ignore
 
     # Если список __questions_answers содержит два и более элементов, значит в базе нет этих ответов и не стоит тратить время на их поиск
     # лучше сразу переходить на поиск через базу AI и сам AI
     def __use_only_ai_search(self) -> bool:
-        result  = False
+        result = False
 
         if self.__only_ai_search:
             if self.__use_ai and self.__name_ai:
                 result = True
         else:
-            result = len(self.__questions_answers) > 1 and self.__use_ai and self.__name_ai
+            result = len(
+                self.__questions_answers) > 1 and self.__use_ai and self.__name_ai
 
         return result
 
     def __delete_wrong_symbols(self, file_name: str) -> str:
         if file_name[-1] == '.' or file_name[-1] == ' ':
-            file_name[-1] = ''
+            file_name[-1] = ''  # type: ignore
 
-        table = str.maketrans('', '', '\/:*?"<>|')
+        table = str.maketrans('', '', '\/:*?"<>|')  # type: ignore
         return file_name.translate(table)
 
     def __alert(self, message: str) -> None:

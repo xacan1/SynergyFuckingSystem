@@ -12,6 +12,7 @@ def ai_search(question: str, name_ai: str) -> str:
         messages=[
             {"role": "user", "content": question},
         ],
+        # response_format={'type': 'json_object'},
         temperature=.8,
         stream=False
     )

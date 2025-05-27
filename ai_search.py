@@ -56,7 +56,7 @@ def get_variants_answers_for_choice(page: Page, choice_multiple: bool) -> str:
     for answer in answers:
         id_answer = answer.get_attribute('value')
         text_answer = target_html.locator(f'label[for="answers-{id_answer}"]')
-        variants_answers[id_answer] = text_answer.text_content().strip()
+        variants_answers[id_answer] = text_answer.text_content().strip() # type: ignore
 
     try:
         result = json.dumps(variants_answers, ensure_ascii=False)
@@ -79,7 +79,7 @@ def get_variants_answers_for_sort(page: Page) -> str:
     for answer in answers:
         input_answer = answer.locator('input[name="answers[]"]')
         id_answer = input_answer.get_attribute('value')
-        text_answer = input_answer.text_content().strip().replace(' ', '')
+        text_answer = input_answer.text_content().strip().replace(' ', '') # type: ignore
         variants_answers[id_answer] = text_answer
 
     try:

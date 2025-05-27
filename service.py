@@ -113,7 +113,7 @@ def get_access() -> bool:
     result = False
 
     try:
-        with winreg.OpenKeyEx(winreg.HKEY_CURRENT_USER, 'Software\SFS') as key:
+        with winreg.OpenKeyEx(winreg.HKEY_CURRENT_USER, 'Software\SFS') as key: # type: ignore
             value, type_value = winreg.QueryValueEx(key, 'SFS_key')
             result = (value == config.KEY_ACCESS_VALUE)
     except FileNotFoundError:

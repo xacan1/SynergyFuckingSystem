@@ -23,7 +23,7 @@ def create_proxies_db() -> None:
 
 
 def create_ai_answers_db() -> None:
-    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:
+    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con: # type: ignore
         cur = con.cursor()
         cur.executescript("""
         CREATE TABLE IF NOT EXISTS question_blocks(
@@ -207,8 +207,8 @@ def get_text_answer(identifier: str, id_question: int = 0) -> str:
 def get_correct_answer_info_from_ai_answers(question: str, type_question: str, discipline: str) -> list[tuple]:
     answer_info = []
 
-    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:
-        question_block_id = get_question_block_id(cur, discipline)
+    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con: # type: ignore
+        question_block_id = get_question_block_id(cur, discipline) # type: ignore
 
         if not question_block_id:
             return answer_info
@@ -242,39 +242,41 @@ def get_question_block_id(cur: sq.Cursor, title: str) -> int:
     return question_block_id
 
 
-def get_question_id(cur: sq.Cursor, question: str, question_type: str, question_block_id: int) -> int:
-    question_id = 0
-    parameters = (question, question_type, question_block_id,)
-    cur.execute("""
-    SELECT questionId FROM question_answers 
-    WHERE question=? and questionType=? and questionBlockId=?
-    """, parameters)
-    row = cur.fetchone()
+def get_question_id(question: str, question_type: str, question_block_id: int) -> int:
+    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con: # type: ignore
+        cur = con.cursor()
+        question_id = 0
+        parameters = (question, question_type, question_block_id,)
+        cur.execute("""
+        SELECT questionId FROM question_answers 
+        WHERE question=? and questionType=? and questionBlockId=?
+        """, parameters)
+        row = cur.fetchone()
 
-    if row:
-        question_block_id = row[0]
+        if row:
+            question_block_id = row[0]
 
     return question_id
 
 
 # Запись верного ответа от AI в специальную базу ответов
 def save_correct_answer(question_answer: dict) -> None:
-    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:
+    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con: # type: ignore
         cur = con.cursor()
         title_discipline = question_answer.get('questionBlock')
-        question_block_id = get_question_block_id(cur, title_discipline)
+        question_block_id = get_question_block_id(cur, title_discipline) # type: ignore
 
         if not question_block_id:
             parameters = (title_discipline,)
             cur.execute('INSERT INTO question_blocks (title) VALUES (?)',
                         parameters)
             con.commit()
-            question_block_id = get_question_block_id(cur, title_discipline)
+            question_block_id = get_question_block_id(cur, title_discipline) # type: ignore
 
         question = question_answer.get('question')
         question_type = question_answer.get('questionType')
-        question_id = get_question_id(cur, question,
-                                      question_type,
+        question_id = get_question_id(question, # type: ignore
+                                      question_type, # type: ignore
                                       question_block_id)
 
         if not question_id:
@@ -289,17 +291,19 @@ def save_correct_answer(question_answer: dict) -> None:
             con.commit()
 
 
-def get_incorrect_response_id(cur: sq.Cursor, incorrect_response: str, question_id: int) -> int:
-    incorrect_response_id = 0
-    parameters = (question_id, incorrect_response,)
-    cur.execute("""
-    SELECT responseId FROM incorrect_responses 
-    WHERE questionId=? and incorrectResponse=?
-    """, parameters)
-    row = cur.fetchone()
+def get_incorrect_response_id(incorrect_response: str, question_id: int) -> int:
+    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con: # type: ignore
+        cur = con.cursor()
+        incorrect_response_id = 0
+        parameters = (question_id, incorrect_response,)
+        cur.execute("""
+        SELECT responseId FROM incorrect_responses 
+        WHERE questionId=? and incorrectResponse=?
+        """, parameters)
+        row = cur.fetchone()
 
-    if row:
-        incorrect_response_id = row[0]
+        if row:
+            incorrect_response_id = row[0]
 
     return incorrect_response_id
 
@@ -309,22 +313,22 @@ def save_incorrect_answer(question_answer: dict) -> None:
     if question_answer.get('questionType') == 'textEntry':
         return
 
-    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:
+    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con: # type: ignore
         cur = con.cursor()
         title_discipline = question_answer.get('questionBlock')
-        question_block_id = get_question_block_id(cur, title_discipline)
+        question_block_id = get_question_block_id(cur, title_discipline) # type: ignore
 
         if not question_block_id:
             parameters = (title_discipline,)
             cur.execute('INSERT INTO question_blocks (title) VALUES (?)',
                         parameters)
             con.commit()
-            question_block_id = get_question_block_id(cur, title_discipline)
+            question_block_id = get_question_block_id(cur, title_discipline) # type: ignore
 
         question = question_answer.get('question')
         question_type = question_answer.get('questionType')
-        question_id = get_question_id(cur, question,
-                                      question_type,
+        question_id = get_question_id(question, # type: ignore
+                                      question_type, # type: ignore
                                       question_block_id)
 
         if not question_id:
@@ -337,13 +341,12 @@ def save_incorrect_answer(question_answer: dict) -> None:
             VALUES (?,?,?,?,?)
             """, parameters)
             con.commit()
-            question_id = get_question_id(cur, question,
-                                          question_type,
+            question_id = get_question_id(question, # type: ignore
+                                          question_type, # type: ignore
                                           question_block_id)
 
         incorrect_response = question_answer.get('correctResponse')
-        incorrect_response_id = get_incorrect_response_id(cur,
-                                                          incorrect_response,
+        incorrect_response_id = get_incorrect_response_id(incorrect_response, # type: ignore
                                                           question_id)
 
         if not incorrect_response_id:

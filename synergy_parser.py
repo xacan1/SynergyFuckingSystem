@@ -1,11 +1,11 @@
 from playwright.sync_api import sync_playwright, TimeoutError, Error, expect
 from fake_useragent import UserAgent
-from pathlib import Path
 from datetime import datetime
 import keyboard
 import model
 import config
 import time
+import proxies
 import service
 import ai_search
 
@@ -30,14 +30,15 @@ class SynergyParser:
         self.start_url = start_url
         self.ua = UserAgent()
         self.__settings = service.load_settings()
-        self.proxy_info = self.__get_unused_proxy()
+        self.__use_proxy = self.__settings.get('use_proxy', 0)
+        self.proxy_info = proxies.get_unused_proxy(self.__use_proxy)
         self.__playwright = sync_playwright().start()
         self.__browser = self.__playwright.chromium.launch(headless=False,
                                                            args=[
                                                                '--start-maximized'],
                                                            ignore_default_args=[
                                                                '--enable-automation'],
-                                                           proxy=self.__get_proxy_settings())  # type: ignore
+                                                           proxy=proxies.get_proxy_settings(self.proxy_info))  # type: ignore
         self.__context = self.__browser.new_context(user_agent=self.ua.random,
                                                     no_viewport=True)
         self.__context.grant_permissions(permissions=['camera'])
@@ -54,7 +55,7 @@ class SynergyParser:
         self.__complete_test = False
         self.__manual_presskey = False
         self.__pid = service.get_active_window_pid()
-        self.__set_used_proxy()
+        proxies.set_used_proxy(self.__use_proxy, self.proxy_info)
         self.__set_hotkey()
         self.__begin_autotest_running = False
         self.__use_ai = self.__settings.get('use_ai', 0)
@@ -73,48 +74,6 @@ class SynergyParser:
         if self.__pid == active_pid:
             self.__manual_presskey = not self.__manual_presskey
 
-    # ********************* Работа с прокси ******************************************************************************
-    # Пример результата: proxy={"server": "http://83.167.122.108:1405", "username": "em7YT4", "password": "AzRAB9uc2ukp"})
-
-    def __get_proxy_settings(self) -> dict | None:
-        proxy = {}
-
-        if not self.proxy_info:
-            return None
-
-        proxy['server'] = f'http://{self.proxy_info["ip"]}:{self.proxy_info["port"]}'
-        proxy['username'] = self.proxy_info['user']
-        proxy['password'] = self.proxy_info['password']
-
-        return proxy
-
-    def __get_unused_proxy(self) -> dict:
-        proxy_info = {}
-
-        if not self.__settings.get('use_proxy', 0):
-            return proxy_info
-
-        proxy_info = model.get_unused_proxy()
-        return proxy_info
-
-    # если используем прокси, то в БД укажем что используем его
-    def __set_used_proxy(self) -> None:
-        if self.__settings.get('use_proxy', 0):
-            model.set_proxy_used(self.proxy_info.get('ip', ''))
-
-    def __free_used_proxy(self) -> None:
-        if self.__settings.get('use_proxy', 0):
-            model.free_proxy_used(self.proxy_info.get('ip', ''))
-
-    # Проверяет включено ли использование прокси и есть ли при этом свободный прокси в БД, иначе завершает программу
-    def __check_free_proxy(self) -> None:
-        if self.__settings.get('use_proxy', 0) and not self.proxy_info:
-            self.page.wait_for_timeout(2000)
-            self.__alert('Нет свободных прокси!')
-            self.stop()
-
-    # ******************* Конец работы с прокси ************************************************************
-
     # ЧАСТЬ ДЛЯ РУЧНОГО ПОИСКА И ЗАПУСКА ТЕСТА **************************************************************************************************************************
     # стартует программа без логина студента, но с ожиданием появления таймера (#testTimeLimit) теста на странице и если он есть, то запускает автотест (ожидает однократно)
 
@@ -123,7 +82,11 @@ class SynergyParser:
 
         self.page.on('dialog', lambda dialog: print(
             f'{dialog.message}') if config.DEBUG else ...)  # type: ignore
-        self.__check_free_proxy()
+
+        if self.__use_proxy and not self.proxy_info:
+            self.page.wait_for_timeout(2000)
+            self.__alert('Нет свободных прокси!')
+            self.stop()
 
         try:
             self.page.on('load', self.__check_begin_test)  # type: ignore
@@ -188,8 +151,8 @@ class SynergyParser:
                     self.__current_discipline = discipline
 
                 if self.__use_ai and self.__questions_answers:
-                    ai_search.check_and_save_result_test(self.page,
-                                                         self.__questions_answers)
+                    service.check_and_save_result_test(self.page,
+                                                       self.__questions_answers)
                     self.__questions_answers.clear()
 
                 if config.DEBUG:
@@ -221,7 +184,7 @@ class SynergyParser:
             self.__reload(error_msg)
 
     # начинаем автотест на стандартной странице теста
-    def __begin_autotest(self) -> str:  # type: ignore
+    def __begin_autotest(self) -> str:
         error_msg = ''
         self.__begin_autotest_running = True
 
@@ -229,7 +192,8 @@ class SynergyParser:
             print('<<<<< Обнаружен вопрос >>>>>')
 
         if not self.__path_log_file:
-            error_msg = self.__create_log_file()
+            self.__path_log_file, error_msg = service.create_log_file(self.page,
+                                                                      self.__current_discipline)
 
         if error_msg:
             return error_msg
@@ -265,29 +229,30 @@ class SynergyParser:
         if config.DEBUG:
             print(f'Поисковые фразы:\n{variants_question}')
 
-        self.__logging(f'Вопрос: {raw_text_question}')
+        service.logging(f'Вопрос: {raw_text_question}', self.__path_log_file)
         type_question, error_msg = self.__get_question_type()
 
         if error_msg:
             return error_msg
 
-        self.__logging(f'Тип вопроса: {type_question}')
+        service.logging(f'Тип вопроса: {type_question}', self.__path_log_file)
         need_skip, need_reload, error_msg = self.__searching_for_answer(variants_question,
                                                                         type_question,
                                                                         raw_text_question)
-        self.__logging(f'question_block_id: {self.__question_block_id}')
+        service.logging(f'question_block_id: {self.__question_block_id}',
+                        self.__path_log_file)
 
         if need_skip:
             self.__skip_question(error_msg)
-            return ''
+            error_msg = ''
+            return error_msg
         elif need_reload or error_msg:
             return error_msg
 
         self.__pause_for_answer()
         error_msg = self.__send_answer()
 
-        if error_msg:
-            return error_msg
+        return error_msg
 
     # Определяет возникновение ошибок на стороне сервера, как правило при этом футер не прогружен
     def __find_server_errors(self) -> str:
@@ -319,8 +284,8 @@ class SynergyParser:
             count += 1
 
         if count == timeout:
-            self.__logging(
-                f'Не дождались завершения __begin_autotest за {timeout} сек')
+            service.logging(
+                f'Не дождались завершения __begin_autotest за {timeout} сек', self.__path_log_file)
             self.__begin_autotest_running = False
 
     # делает паузу между ответами, если пауза меньше 10 сек, это не хорошо, а если более 29 сек,
@@ -352,8 +317,8 @@ class SynergyParser:
                 result = (test_info, error_msg)
                 return result
             else:
-                value = item[0].text_content().replace( # type: ignore
-                    'Вопрос', '').strip() 
+                value = item[0].text_content().replace(  # type: ignore
+                    'Вопрос', '').strip()
 
                 if value.isdecimal():
                     test_info['item'] = int(value)
@@ -456,14 +421,14 @@ class SynergyParser:
                                                                         type_question,
                                                                         raw_text_question)
         elif type_question == '':
-            # self.__logging('Тип вопроса неопределен!')
+            # service.logging('Тип вопроса неопределен!')
             need_reload = True
             error_msg = 'Тип вопроса неопределен!'
         else:
             need_skip = True
             error_msg = 'Неизвестный тип вопроса!'
             self.__count_unfound_answers += 1
-            self.__logging(error_msg)
+            service.logging(error_msg, self.__path_log_file)
             self.__alert(error_msg)
 
         result = (need_skip, need_reload, error_msg)
@@ -504,8 +469,8 @@ class SynergyParser:
             id_answer = answer[0]
             id_question = answer[1]
             result = (id_answer, id_question)
-            self.__logging(
-                'Найдено более одного текстового ответа в БД. Беру первый попавшийся ответ!')
+            service.logging(
+                'Найдено более одного текстового ответа в БД. Беру первый попавшийся ответ!', self.__path_log_file)
 
         return result
 
@@ -682,8 +647,9 @@ class SynergyParser:
             print(
                 f'Найденный id ответа: {id_answer}\nНайденный id вопроса: {id_question}')
 
-        if self.__use_only_ai_search():
-            id_answer = ''
+        have_image = ai_search.have_image_in_question(self.page)
+        raw_text_question = ai_search.get_text_answer(self.page,
+                                                      self.__name_ai)
 
         if not id_answer and not self.__use_ai:
             error_msg = 'Не найден единственный правильный ответ при выключенном AI!'
@@ -692,49 +658,50 @@ class SynergyParser:
             self.__count_unfound_answers += 1
             result = (need_skip, need_reload, error_msg)
             return result
-        elif not id_answer and self.__use_ai:
-            have_image = ai_search.have_image_in_question(self.page)
+        elif not id_answer and self.__use_ai and have_image:
+            id_answer = self.__choose_correct_answer_ai(type_question,
+                                                        raw_text_question)
 
-            if have_image:
-                error_msg = 'Вопрос пропущен из-за наличия картинки при поиске AI!'
-                need_skip = True
-                need_reload = False
-                self.__count_unfound_answers += 1
-                result = (need_skip, need_reload, error_msg)
-                return result
+            if not id_answer:
+                id_answer = self.__choose_correct_answer_random(type_question,
+                                                                raw_text_question)
+            
+            service.logging('В вопросе есть картинка, ищем по базе AI или используем случайный ответ', self.__path_log_file)
+        elif not id_answer and self.__use_ai and not have_image:
+            id_answer = self.__choose_correct_answer_ai(type_question,
+                                                        raw_text_question)
 
-            raw_text_question = ai_search.get_text_answer(self.page,
-                                                          self.__name_ai)
-            variants_answers = ai_search.get_variants_answers_for_choice(self.page,
-                                                                         False)
-            ai_answer, error_msg = ai_search.ai_search(
-                f'{raw_text_question} Варианты ответа в JSON: {variants_answers} В ответе оставь только правильный JSON',
-                self.__name_ai)
+            if not id_answer:
+                variants_answers = ai_search.get_variants_answers_for_choice(self.page,
+                                                                             False)
+                ai_answer, error_msg = ai_search.ai_search(
+                    f'{raw_text_question} Варианты ответа в JSON: {variants_answers} В ответе оставь только правильный JSON',
+                    self.__name_ai)
 
-            if config.DEBUG:
-                print(f'Ответ AI:\n{ai_answer}')
+                if config.DEBUG:
+                    print(f'Ответ AI:\n{ai_answer}')
 
-            ai_dict, need_skip, need_reload, error_msg = service.load_json(
-                ai_answer)
+                ai_dict, need_skip, need_reload, error_msg = service.load_json(
+                    ai_answer)
 
-            if error_msg:
-                self.__count_unfound_answers += 1
-                result = (need_skip, need_reload, error_msg)
-                return result
+                if error_msg:
+                    self.__count_unfound_answers += 1
+                    result = (need_skip, need_reload, error_msg)
+                    return result
 
-            for key in ai_dict:
-                id_answer += key
-                break
+                for key in ai_dict:
+                    id_answer += key
+                    break
 
-            question_answer = {
-                'questionBlock': self.__current_discipline,
-                'question': raw_text_question,
-                'questionType': type_question,
-                'correctResponse': id_answer,
-                'created': datetime.now().date(),
-            }
+                question_answer = {
+                    'questionBlock': self.__current_discipline,
+                    'question': raw_text_question,
+                    'questionType': type_question,
+                    'correctResponse': id_answer,
+                    'created': datetime.now().date(),
+                }
 
-            self.__questions_answers.append(question_answer)
+                self.__questions_answers.append(question_answer)
 
         radio_button = self.page.locator(f'input[value="{id_answer}"]')
 
@@ -751,18 +718,47 @@ class SynergyParser:
 
         return result
 
-    # Выбирает ответ из списка по порядку и сверяется с базой неверных ответов
-    def __random_answer_choice(self):
+    # Полчает ответы из базы ответов AI, если они есть перебирает каждую галочку пока не найдет ее в списке верных ответов
+    def __choose_correct_answer_ai(self, type_question: str, raw_text_question: str) -> str:
+        found_answer = ''
         radio_buttons = self.page.locator('input').all()
-        
-        # for radio_button in radio_buttons:
-        #     # тут надо найти в базе неправильных ответов все варианты и выбрать тот которого еще нет
-        #     response = radio_button.get_attribute('value')
-        #     question_id = model.get_question_id()
-        #     model.get_incorrect_response_id(response, )
-        #     # radio_button = self.page.locator(f'input[value="{id_answer}"]')
+        answer_info = model.get_correct_answer_info_from_ai_answers(raw_text_question,
+                                                                    type_question,
+                                                                    self.__current_discipline)
 
-    # Проверяет правильность ответов и выбирает подходящий, когда их несколько в БД на один текст вопроса
+        if answer_info:
+            correct_responses = [answer[0] for answer in answer_info]
+
+            for radio_button in radio_buttons:
+                response = radio_button.get_attribute('value')
+
+                if response in correct_responses:
+                    found_answer = response
+                    break
+
+        return found_answer
+
+    # выбирает тот вариант ответа, которого нет в базе неправильных ответов AI
+    def __choose_correct_answer_random(self, type_question: str, raw_text_question: str) -> str:
+        found_answer = ''
+        radio_buttons = self.page.locator('input').all()
+        question_block_id = model.get_question_block_id(
+            self.__current_discipline)
+        question_id = model.get_question_id(raw_text_question,
+                                            type_question,
+                                            question_block_id)
+
+        for radio_button in radio_buttons:
+            response = radio_button.get_attribute('value')
+            incorrect_response_id = model.get_incorrect_response_id(response,  # type: ignore
+                                                                    question_id)
+
+            if not incorrect_response_id and response:
+                found_answer = response
+                break
+
+        return found_answer
+
     def __check_multiple_answers(self, answers: list) -> tuple[str, int]:
         result = ('', 0)
 
@@ -1107,8 +1103,8 @@ class SynergyParser:
             correct_response = ''
 
         if not correct_response and not self.__use_ai:
-            self.__logging(
-                'Не найден ответ для сопоставления при выключенном AI. Будет применен ответ по умолчанию.')
+            service.logging(
+                'Не найден ответ для сопоставления при выключенном AI. Будет применен ответ по умолчанию.', self.__path_log_file)
             correct_response = default_response
         elif not correct_response and self.__use_ai:
             have_image = ai_search.have_image_in_question(self.page)
@@ -1116,8 +1112,8 @@ class SynergyParser:
                                                           self.__name_ai)
 
             if have_image:
-                self.__logging(
-                    'Найдена картинка в вопросе сопоставления при включенном AI. Будет применен ответ по умолчанию.')
+                service.logging(
+                    'Найдена картинка в вопросе сопоставления при включенном AI. Будет применен ответ по умолчанию.', self.__path_log_file)
                 correct_response = default_response
             else:
                 left_answers, bottom_answers = ai_search.get_variants_answers_for_match(
@@ -1131,8 +1127,8 @@ class SynergyParser:
                     print(f'Ответ AI:\n{ai_answer}')
 
                 if '|' not in ai_answer:
-                    self.__logging(
-                        f'{error_msg} Будет применен ответ по умолчанию.')
+                    service.logging(
+                        f'{error_msg} Будет применен ответ по умолчанию.', self.__path_log_file)
                     correct_response = default_response
                 else:
                     correct_response = ai_answer
@@ -1423,8 +1419,8 @@ class SynergyParser:
             correct_response = ''
 
         if not correct_response and not self.__use_ai:
-            self.__logging(
-                'Не найден ответ для множественного сопоставления при выключенном AI. Будет применен ответ по умолчанию.')
+            service.logging(
+                'Не найден ответ для множественного сопоставления при выключенном AI. Будет применен ответ по умолчанию.', self.__path_log_file)
             correct_response = default_response
         if not correct_response and self.__use_ai:
             have_image = ai_search.have_image_in_question(self.page)
@@ -1432,8 +1428,8 @@ class SynergyParser:
                                                           self.__name_ai)
 
             if have_image:
-                self.__logging(
-                    'Найдена картинка в вопросе множественного сопоставления при включенном AI. Будет применен ответ по умолчанию.')
+                service.logging(
+                    'Найдена картинка в вопросе множественного сопоставления при включенном AI. Будет применен ответ по умолчанию.', self.__path_log_file)
                 correct_response = default_response
             else:
                 left_answers, bottom_answers = ai_search.get_variants_answers_for_match_multiple(
@@ -1448,8 +1444,8 @@ class SynergyParser:
                     print(f'Ответ AI:\n{ai_answer}')
 
                 if '|' not in ai_answer or len(ai_answer) != len(default_response):
-                    self.__logging(
-                        f'{error_msg} Будет применен ответ по умолчанию.')
+                    service.logging(
+                        f'{error_msg} Будет применен ответ по умолчанию.', self.__path_log_file)
                     correct_response = default_response
                 else:
                     correct_response = ai_answer
@@ -1548,6 +1544,7 @@ class SynergyParser:
     # а далее на отдельные слова не короче 6 символов по иностранному тексту или по тексту без тегов
     # Второй элемент это сырой вопрос с тегами
     # Третий элемент кортежа сообщение об ошибке
+    # Для поиска с AI есть более простая функция для получения сырого текста вопроса
     def __get_question(self) -> tuple[list[str], str, str]:
         error_msg = ''
         variants_question = []
@@ -1661,7 +1658,8 @@ class SynergyParser:
             error_msg = 'Не удалось найти кнопку Пропустить вопрос'
             return error_msg
 
-        self.__logging(f'Вопрос пропущен: {reason_skip}')
+        service.logging(
+            f'Вопрос пропущен: {reason_skip}', self.__path_log_file)
 
         return error_msg
 
@@ -1686,7 +1684,7 @@ class SynergyParser:
             error_msg = 'Не удалось найти кнопку отправки ответа.'
             return error_msg
 
-        self.__logging('Ответ отправлен')
+        service.logging('Ответ отправлен', self.__path_log_file)
         return error_msg
 
     # делает искусственную паузу для ручного поиска теста путем поиска несуществующего селектора
@@ -1701,7 +1699,7 @@ class SynergyParser:
 
     def __reload(self, message: str = '') -> None:
         self.page.reload()
-        self.__logging(f'{message}; Обновляем страницу')
+        service.logging(f'{message}; Обновляем страницу', self.__path_log_file)
 
     def __finish_test(self) -> tuple[bool, str]:
         finish = False
@@ -1716,7 +1714,7 @@ class SynergyParser:
 
         if questions_unanswered > int(questions_count / 2):
             error_msg = 'Много неотвеченных вопросов, тест не был сдан!'
-            self.__logging(error_msg)
+            service.logging(error_msg, self.__path_log_file)
             self.__question_block_id = 0
             self.__complete_test = False
             self.__path_log_file = ''
@@ -1733,14 +1731,14 @@ class SynergyParser:
             button_finish.dispatch_event('click')
         except TimeoutError:
             error_msg = 'Не удалось найти кнопку завершения теста за таймаут'
-            self.__logging(error_msg)
+            service.logging(error_msg, self.__path_log_file)
             self.__path_log_file = ''
             finish = True
             result = (finish, error_msg)
             return result
         except Error:
             error_msg = 'Не удалось найти кнопку завершения теста'
-            self.__logging(error_msg)
+            service.logging(error_msg, self.__path_log_file)
             self.__path_log_file = ''
             finish = True
             result = (finish, error_msg)
@@ -1749,68 +1747,13 @@ class SynergyParser:
         self.__question_block_id = 0
         self.__complete_test = False
         self.__test_info = {}
-        self.__logging('<<<<< Тест успешно завершен! >>>>>')
+        service.logging('<<<<< Тест успешно завершен! >>>>>',
+                        self.__path_log_file)
         self.__path_log_file = ''
         finish = True
         # self.__questions_answers.clear()
         result = (finish, error_msg)
         return result
-
-    def __logging(self, line: str) -> None:
-        if config.DEBUG:
-            print(line)
-
-        if not self.__path_log_file:
-            return
-
-        dt = datetime.now()
-        time_log = dt.strftime('%d-%m-%Y|%H:%M:%S')
-
-        try:
-            with open(self.__path_log_file, 'a', encoding='utf-8') as f:
-                f.write(f'{time_log} {line}\n')
-        except FileNotFoundError:
-            pass
-
-    def __create_log_file(self) -> str:
-        error_msg = ''
-        log_dir = 'errors'
-        Path(log_dir).mkdir(parents=True, exist_ok=True)
-
-        try:
-            student = self.page.locator('#user-profile').get_attribute('title')
-        except TimeoutError:
-            error_msg = 'Не удалось определить имя студента!'
-            return error_msg
-        except Error:
-            error_msg = 'Не удалось определить имя студента!'
-            return error_msg
-
-        discipline = self.__current_discipline
-        student = student.strip()  # type: ignore
-        found_files = sorted(Path(log_dir).glob(
-            f'{student}-{discipline}*.log'))
-        name_log_file = ''
-
-        if found_files:
-            number_file = found_files[-1].name.split('-')[2].split('.')[0]
-
-            if number_file.isdecimal():
-                name_log_file = f'{student}-{discipline}-{int(number_file) + 1}.log'
-            elif config.DEBUG:
-                print(
-                    f'Имя лог файла: {found_files[-1].name} оканчивается не на цифры!')
-        else:
-            name_log_file = f'{student}-{discipline}-1.log'
-
-        if name_log_file:
-            name_log_file = self.__delete_wrong_symbols(name_log_file)
-            self.__path_log_file = f'{log_dir}/{name_log_file}'
-
-            f = open(self.__path_log_file, 'w+', encoding='utf-8')
-            f.close()
-
-        return error_msg
 
     def __get_name_discipline(self) -> str:
         discipline = ''
@@ -1844,18 +1787,11 @@ class SynergyParser:
 
         return result
 
-    def __delete_wrong_symbols(self, file_name: str) -> str:
-        if file_name[-1] == '.' or file_name[-1] == ' ':
-            file_name[-1] = ''  # type: ignore
-
-        table = str.maketrans('', '', '\/:*?"<>|')  # type: ignore
-        return file_name.translate(table)
-
     def __alert(self, message: str) -> None:
         self.page.evaluate(f'() => alert("{message}");')
 
     def stop(self) -> None:
-        self.__free_used_proxy()
+        proxies.free_used_proxy(self.__use_proxy, self.proxy_info)
         self.__context.close()
         self.__browser.close()
         self.__playwright.stop()

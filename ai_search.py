@@ -1,9 +1,7 @@
 from playwright.sync_api import Page
 import json
-import time
 import yandex_gpt_search
 import deepseek_search
-import model
 
 
 def ai_search(question: str, name_ai: str) -> tuple[str, str]:
@@ -39,6 +37,7 @@ def have_image_in_question(page: Page) -> bool:
     return True if question_images else False
 
 
+# Родготавливает варианты ответов списоком на выбор для AI:
 def get_variants_answers_for_choice(page: Page, choice_multiple: bool) -> str:
     result = ''
     target_html = page.locator('form[id="player-assessments-form"]')
@@ -79,7 +78,7 @@ def get_variants_answers_for_sort(page: Page) -> str:
     for answer in answers:
         input_answer = answer.locator('input[name="answers[]"]')
         id_answer = input_answer.get_attribute('value')
-        text_answer = input_answer.text_content().strip().replace(' ', '') # type: ignore
+        text_answer = input_answer.text_content().strip().replace(' ', '')  # type: ignore
         variants_answers[id_answer] = text_answer
 
     try:
@@ -204,46 +203,3 @@ def get_variants_answers_for_match_multiple(page: Page) -> tuple[str, str]:
 
     result = (left, bottom)
     return result
-
-
-def get_check_list_result_test(page: Page) -> dict:
-    result_test = {}
-    # page.locator('a[id="statistic"]').wait_for()
-    result_links = page.locator('a[id="statistic"]').all()
-    last_link = result_links[-1]
-
-    try:
-        last_link.focus()
-        last_link.dispatch_event('click')
-    except TimeoutError:
-        return result_test
-
-    time.sleep(1)
-    # page.locator('table.table-corpus').wait_for()
-    table_result = page.locator('table.table-corpus tbody tr').all()
-
-    for row in table_result:
-        tds = row.locator('td').all()
-
-        if len(tds) > 3:
-            result_test[tds[1].inner_html().strip()] = tds[3].inner_text()
-
-    return result_test
-
-
-# проверка ответов на форме завершения теста и запись результатов в БД
-def check_and_save_result_test(page: Page, questions_answers: list[dict]):
-    check_list = get_check_list_result_test(page)
-
-    for question_answer in questions_answers:
-        question = question_answer.get('question', '')
-
-        if not question:
-            continue
-
-        result = check_list.get(question, '').lower()
-
-        if 'не' in result:
-            model.save_incorrect_answer(question_answer)
-        else:
-            model.save_correct_answer(question_answer)

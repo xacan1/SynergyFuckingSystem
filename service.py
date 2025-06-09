@@ -1,7 +1,12 @@
+from playwright.sync_api import Page, TimeoutError, Error
+from pathlib import Path
+from datetime import datetime
+from ctypes import wintypes, windll, byref, create_unicode_buffer
 import re
 import json
-from ctypes import wintypes, windll, byref, create_unicode_buffer
 import winreg
+import time
+import model
 import config
 
 
@@ -93,11 +98,11 @@ def get_phrsases_for_raw_question(text_question: str) -> list[str]:
 
 # получает PID активного окна
 def get_active_window_pid() -> int:
-        pid = wintypes.DWORD()
-        active_hwnd = windll.user32.GetForegroundWindow()
-        active_window_pid = windll.user32.GetWindowThreadProcessId(
-            active_hwnd, byref(pid))
-        return active_window_pid
+    pid = wintypes.DWORD()
+    active_hwnd = windll.user32.GetForegroundWindow()
+    active_window_pid = windll.user32.GetWindowThreadProcessId(
+        active_hwnd, byref(pid))
+    return active_window_pid
 
 
 # не используется, получает имя активного окна
@@ -113,7 +118,7 @@ def get_access() -> bool:
     result = False
 
     try:
-        with winreg.OpenKeyEx(winreg.HKEY_CURRENT_USER, 'Software\SFS') as key: # type: ignore
+        with winreg.OpenKeyEx(winreg.HKEY_CURRENT_USER, 'Software\SFS') as key:  # type: ignore
             value, type_value = winreg.QueryValueEx(key, 'SFS_key')
             result = (value == config.KEY_ACCESS_VALUE)
     except FileNotFoundError:
@@ -168,3 +173,112 @@ def load_settings() -> dict:
             settings[parameter] = value
 
     return settings
+
+
+def delete_wrong_symbols(file_name: str) -> str:
+    if file_name[-1] == '.' or file_name[-1] == ' ':
+        file_name[-1] = ''  # type: ignore
+
+    table = str.maketrans('', '', '\/:*?"<>|')  # type: ignore
+    return file_name.translate(table)
+    
+
+def create_log_file(page: Page, discipline: str) -> tuple[str, str]:
+    path_log_file = ''
+    error_msg = ''
+    log_dir = 'errors'
+    Path(log_dir).mkdir(parents=True, exist_ok=True)
+
+    try:
+        student = page.locator('#user-profile').get_attribute('title')
+    except TimeoutError:
+        error_msg = 'Не удалось определить имя студента!'
+        return path_log_file, error_msg
+    except Error:
+        error_msg = 'Не удалось определить имя студента!'
+        return path_log_file, error_msg
+
+    student = student.strip()  # type: ignore
+    found_files = sorted(Path(log_dir).glob(
+        f'{student}-{discipline}*.log'))
+    name_log_file = ''
+
+    if found_files:
+        number_file = found_files[-1].name.split('-')[2].split('.')[0]
+
+        if number_file.isdecimal():
+            name_log_file = f'{student}-{discipline}-{int(number_file) + 1}.log'
+        elif config.DEBUG:
+            print(
+                f'Имя лог файла: {found_files[-1].name} оканчивается не на цифры!')
+    else:
+        name_log_file = f'{student}-{discipline}-1.log'
+
+    if name_log_file:
+        name_log_file = delete_wrong_symbols(name_log_file)
+        path_log_file = f'{log_dir}/{name_log_file}'
+
+        f = open(path_log_file, 'w+', encoding='utf-8')
+        f.close()
+
+    return path_log_file, error_msg
+
+
+def logging(line: str, path_log_file: str) -> None:
+    if config.DEBUG:
+        print(line)
+
+    if not path_log_file:
+        return
+
+    dt = datetime.now()
+    time_log = dt.strftime('%d-%m-%Y|%H:%M:%S')
+
+    try:
+        with open(path_log_file, 'a', encoding='utf-8') as f:
+            f.write(f'{time_log} {line}\n')
+    except FileNotFoundError:
+        pass
+    
+    
+def get_check_list_result_test(page: Page) -> dict:
+    result_test = {}
+    # page.locator('a[id="statistic"]').wait_for()
+    result_links = page.locator('a[id="statistic"]').all()
+    last_link = result_links[-1]
+
+    try:
+        last_link.focus()
+        last_link.dispatch_event('click')
+    except TimeoutError:
+        return result_test
+
+    time.sleep(1)
+    # page.locator('table.table-corpus').wait_for()
+    table_result = page.locator('table.table-corpus tbody tr').all()
+
+    for row in table_result:
+        tds = row.locator('td').all()
+
+        if len(tds) > 3:
+            result_test[tds[1].inner_html().strip()] = tds[3].inner_text()
+
+    return result_test
+
+
+# проверка ответов на форме завершения теста и запись результатов в БД
+def check_and_save_result_test(page: Page, questions_answers: list[dict]):
+    check_list = get_check_list_result_test(page)
+
+    for question_answer in questions_answers:
+        question = question_answer.get('question', '')
+
+        if not question:
+            continue
+
+        result = check_list.get(question, '').lower()
+
+        if 'не' in result:
+            model.save_incorrect_answer(question_answer)
+        else:
+            model.save_correct_answer(question_answer)

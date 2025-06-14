@@ -37,7 +37,7 @@ def have_image_in_question(page: Page) -> bool:
     return True if question_images else False
 
 
-# Родготавливает варианты ответов списоком на выбор для AI:
+# Подготавливает варианты ответов списоком на выбор для AI:
 def get_variants_answers_for_choice(page: Page, choice_multiple: bool) -> str:
     result = ''
     target_html = page.locator('form[id="player-assessments-form"]')

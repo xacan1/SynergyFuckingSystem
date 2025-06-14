@@ -61,7 +61,7 @@ class SynergyParser:
         self.__use_ai = self.__settings.get('use_ai', 0)
         self.__only_ai_search = self.__settings.get('only_ai_search', 0)
         self.__name_ai = self.__settings.get('name_ai', '')
-        self.__questions_answers = []
+        self.__questions_answers = []  # список словарей {вопрос: ответ}
 
     def __set_hotkey(self) -> None:
         if self.__settings.get('use_hotkey', 0):
@@ -543,21 +543,24 @@ class SynergyParser:
 
             raw_text_question = ai_search.get_text_answer(self.page,
                                                           self.__name_ai)
-            text_answer, error_msg = ai_search.ai_search(f'{raw_text_question} В ответе укажи только пропущенное слово',
-                                                         self.__name_ai)
-            text_answer = text_answer.replace('.', '')
-            question_answer = {
-                'questionBlock': self.__current_discipline,
-                'question': raw_text_question,
-                'questionType': type_question,
-                'correctResponse': text_answer,
-                'created': datetime.now().date(),
-            }
-
-            self.__questions_answers.append(question_answer)
+            text_answer = self.__input_text_answer_ai(type_question,
+                                                      raw_text_question)
 
             if config.DEBUG:
-                print(f'Ответ AI:\n{text_answer}')
+                print(f'Ответ из базы AI:\n{text_answer}')
+
+            if not text_answer:
+                if 'равна' in raw_text_question:
+                    text_answer, error_msg = ai_search.ai_search(f'{raw_text_question} верни только число без пояснений',
+                                                                 self.__name_ai)
+                else:
+                    text_answer, error_msg = ai_search.ai_search(f'{raw_text_question} верни только пропущенное слово без пояснений',
+                                                                 self.__name_ai)
+
+                text_answer = text_answer.replace('.', '')
+
+                if config.DEBUG:
+                    print(f'Ответ AI:\n{text_answer}')
 
         if not error_msg and not text_answer:
             error_msg = 'Не найден текстовый ответ, хотя ID ответа было получено'
@@ -572,6 +575,16 @@ class SynergyParser:
             self.__count_unfound_answers += 1
             result = (need_skip, need_reload, error_msg)
             return result
+
+        if self.__use_ai:
+            question_answer = {
+                'questionBlock': self.__current_discipline,
+                'question': raw_text_question,
+                'questionType': type_question,
+                'correctResponse': text_answer,
+                'created': datetime.now().date(),
+            }
+            self.__questions_answers.append(question_answer)
 
         clear_text_answer = self.__spellchecking(text_answer)
         textarea = self.page.locator('textarea[id=answers-]')
@@ -592,6 +605,19 @@ class SynergyParser:
             return result
 
         return result
+
+    # ищем ответ в базе AI
+    def __input_text_answer_ai(self, type_question: str, raw_text_question: str) -> str:
+        correct_response = ''
+        answer_info = model.get_correct_answer_info_from_ai_answers(raw_text_question,
+                                                                    type_question,
+                                                                    self.__current_discipline)
+
+        if answer_info:
+            correct_responses = [answer[0] for answer in answer_info]
+            correct_response = correct_responses[0]
+
+        return correct_response
 
     def __check_choose_correct_answer(self, answers: list[tuple]) -> tuple[str, int]:
         result = ('', 0)
@@ -665,8 +691,9 @@ class SynergyParser:
             if not id_answer:
                 id_answer = self.__choose_correct_answer_random(type_question,
                                                                 raw_text_question)
-            
-            service.logging('В вопросе есть картинка, ищем по базе AI или используем случайный ответ', self.__path_log_file)
+
+            service.logging(
+                f'В вопросе есть картинка, ищем по базе AI или используем случайный ответ: {id_answer}', self.__path_log_file)
         elif not id_answer and self.__use_ai and not have_image:
             id_answer = self.__choose_correct_answer_ai(type_question,
                                                         raw_text_question)
@@ -693,15 +720,15 @@ class SynergyParser:
                     id_answer += key
                     break
 
-                question_answer = {
-                    'questionBlock': self.__current_discipline,
-                    'question': raw_text_question,
-                    'questionType': type_question,
-                    'correctResponse': id_answer,
-                    'created': datetime.now().date(),
-                }
-
-                self.__questions_answers.append(question_answer)
+        if self.__use_ai:
+            question_answer = {
+                'questionBlock': self.__current_discipline,
+                'question': raw_text_question,
+                'questionType': type_question,
+                'correctResponse': id_answer,
+                'created': datetime.now().date(),
+            }
+            self.__questions_answers.append(question_answer)
 
         radio_button = self.page.locator(f'input[value="{id_answer}"]')
 
@@ -719,9 +746,10 @@ class SynergyParser:
         return result
 
     # Полчает ответы из базы ответов AI, если они есть перебирает каждую галочку пока не найдет ее в списке верных ответов
+
     def __choose_correct_answer_ai(self, type_question: str, raw_text_question: str) -> str:
         found_answer = ''
-        radio_buttons = self.page.locator('input').all()
+        radio_buttons = self.page.locator('div.test-answers>input').all()
         answer_info = model.get_correct_answer_info_from_ai_answers(raw_text_question,
                                                                     type_question,
                                                                     self.__current_discipline)
@@ -741,7 +769,7 @@ class SynergyParser:
     # выбирает тот вариант ответа, которого нет в базе неправильных ответов AI
     def __choose_correct_answer_random(self, type_question: str, raw_text_question: str) -> str:
         found_answer = ''
-        radio_buttons = self.page.locator('input').all()
+        radio_buttons = self.page.locator('div.test-answers>input').all()
         question_block_id = model.get_question_block_id(
             self.__current_discipline)
         question_id = model.get_question_id(raw_text_question,

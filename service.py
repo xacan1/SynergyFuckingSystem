@@ -128,6 +128,7 @@ def get_access() -> bool:
     return result
 
 
+# Получает ответ от AI в виде словаря
 def load_json(s: str) -> tuple[dict, bool, bool, str]:
     error_msg = ''
     need_skip = False

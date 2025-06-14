@@ -237,17 +237,17 @@ def save_new_question(con: sq.Connection, question: str, question_type: str, que
 # возвращает список найденных корректных ответов (возможны колизии) из базы AI
 def get_correct_answer_info_from_ai_answers(question: str, type_question: str, discipline: str) -> list[tuple[str, int, int]]:
     answer_info = []
-    question_block_id = get_question_block_id(discipline)
+    # question_block_id = get_question_block_id(discipline)
 
-    if not question_block_id:
-        return answer_info
+    # if not question_block_id:
+    #     return answer_info
 
     with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
-        parameters = ('', question, type_question, question_block_id)
+        parameters = ('', question, type_question)
         cur = con.cursor()
         cur.execute("""
         SELECT correctResponse, questionId, questionBlockId FROM question_answers 
-        WHERE correctResponse!=? AND question=? AND questionType=? AND questionBlockId=?
+        WHERE correctResponse!=? AND question=? AND questionType=?
         """, parameters)
         rows = cur.fetchall()
 
@@ -257,7 +257,7 @@ def get_correct_answer_info_from_ai_answers(question: str, type_question: str, d
     return answer_info
 
 
-# ищем блок вопросов по тексту вопроса
+# ищем блок вопросов по названию дисциплины
 def get_question_block_id(title_discipline: str) -> int:
     question_block_id = 0
 

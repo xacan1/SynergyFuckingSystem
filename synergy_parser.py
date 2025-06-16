@@ -391,37 +391,37 @@ class SynergyParser:
         need_skip = False
         need_reload = False
         error_msg = ''
+        answer = ''
 
         if type_question == 'textEntry':
-            need_skip, need_reload, error_msg = self.__input_text_answer(variants_question,
-                                                                         type_question,
-                                                                         raw_text_question)
-        elif type_question == 'choice':
-            need_skip, need_reload, error_msg = self.__choose_correct_answer(variants_question,
-                                                                             type_question,
-                                                                             raw_text_question)
-        elif type_question == 'choiceMultiple':
-            need_skip, need_reload, error_msg = self.__choose_multiple_answers(variants_question,
-                                                                               type_question,
-                                                                               raw_text_question)
-        elif type_question == 'order':
-            need_skip, need_reload, error_msg = self.__sorting_answers(variants_question,
-                                                                       type_question,
-                                                                       raw_text_question)
-        elif type_question == 'match':
-            need_skip, need_reload, error_msg = self.__matching_answers(variants_question,
-                                                                        type_question,
-                                                                        raw_text_question)
-        elif type_question == 'matchMultiple':
-            need_skip, need_reload, error_msg = self.__matching_multiple_answers(variants_question,
+            need_skip, need_reload, error_msg, answer = self.__input_text_answer(variants_question,
                                                                                  type_question,
                                                                                  raw_text_question)
+        elif type_question == 'choice':
+            need_skip, need_reload, error_msg, answer = self.__choose_correct_answer(variants_question,
+                                                                                     type_question,
+                                                                                     raw_text_question)
+        elif type_question == 'choiceMultiple':
+            need_skip, need_reload, error_msg, answer = self.__choose_multiple_answers(variants_question,
+                                                                                       type_question,
+                                                                                       raw_text_question)
+        elif type_question == 'order':
+            need_skip, need_reload, error_msg, answer = self.__sorting_answers(variants_question,
+                                                                               type_question,
+                                                                               raw_text_question)
+        elif type_question == 'match':
+            need_skip, need_reload, error_msg, answer = self.__matching_answers(variants_question,
+                                                                                type_question,
+                                                                                raw_text_question)
+        elif type_question == 'matchMultiple':
+            need_skip, need_reload, error_msg, answer = self.__matching_multiple_answers(variants_question,
+                                                                                         type_question,
+                                                                                         raw_text_question)
         elif type_question == 'sequence':
-            need_skip, need_reload, error_msg = self.__sequence_answers(variants_question,
-                                                                        type_question,
-                                                                        raw_text_question)
+            need_skip, need_reload, error_msg, answer = self.__sequence_answers(variants_question,
+                                                                                type_question,
+                                                                                raw_text_question)
         elif type_question == '':
-            # service.logging('Тип вопроса неопределен!')
             need_reload = True
             error_msg = 'Тип вопроса неопределен!'
         else:
@@ -431,8 +431,9 @@ class SynergyParser:
             service.logging(error_msg, self.__path_log_file)
             self.__alert(error_msg)
 
-        result = (need_skip, need_reload, error_msg)
-        return result
+        service.logging(f'Ответ для ввода: {answer}', self.__path_log_file)
+
+        return need_skip, need_reload, error_msg
 
     # Проверяет на орфографические ошибки текстового ответа
     def __spellchecking(self, text_answer: str) -> str:
@@ -491,11 +492,11 @@ class SynergyParser:
         return (id_answer, id_question)
 
     # Ищет и вводит в поле текстовый ответ
-    def __input_text_answer(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str]:
+    def __input_text_answer(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str, str]:
         error_msg = ''
         need_skip = False
         need_reload = False
-        result = (need_skip, need_reload, error_msg)
+        answer = ''
         id_answer = ''
         id_question = 0
 
@@ -520,8 +521,7 @@ class SynergyParser:
             need_skip = True
             need_reload = False
             self.__count_unfound_answers += 1
-            result = (need_skip, need_reload, error_msg)
-            return result
+            return need_skip, need_reload, error_msg, answer
         elif id_answer and ',' in id_answer:
             # бывает, что в базе для текстового ввода есть больше одного ID, тексты в них одинаковы, потому берем первый
             id_answer = id_answer.split(',')[0]
@@ -530,19 +530,8 @@ class SynergyParser:
             text_answer = model.get_text_answer(id_answer, id_question)
         elif not id_answer and self.__use_ai:
             text_answer = ''
-            have_image = ai_search.have_image_in_question(self.page)
-            # ai_answer, error_msg = ai_search.ai_search('Ты YandexGPT 5 или YandexGPT 4?', self.__name_ai)
-
-            if have_image:
-                error_msg = 'Вопрос пропущен из-за наличия картинки при поиске AI!'
-                need_skip = True
-                need_reload = False
-                self.__count_unfound_answers += 1
-                result = (need_skip, need_reload, error_msg)
-                return result
-
-            raw_text_question = ai_search.get_text_answer(self.page,
-                                                          self.__name_ai)
+            # raw_text_question = ai_search.get_text_answer(self.page,
+            #                                               self.__name_ai)
             text_answer = self.__input_text_answer_ai(type_question,
                                                       raw_text_question)
 
@@ -567,14 +556,12 @@ class SynergyParser:
             need_skip = True
             need_reload = False
             self.__count_unfound_answers += 1
-            result = (need_skip, need_reload, error_msg)
-            return result
+            return need_skip, need_reload, error_msg, answer
         elif error_msg and not text_answer:
             need_skip = True
             need_reload = False
             self.__count_unfound_answers += 1
-            result = (need_skip, need_reload, error_msg)
-            return result
+            return need_skip, need_reload, error_msg, answer
 
         if self.__use_ai:
             question_answer = {
@@ -588,6 +575,7 @@ class SynergyParser:
 
         clear_text_answer = self.__spellchecking(text_answer)
         textarea = self.page.locator('textarea[id=answers-]')
+        answer = clear_text_answer
 
         try:
             textarea.type(text=clear_text_answer, delay=100)
@@ -595,16 +583,14 @@ class SynergyParser:
             error_msg = 'Не найдено поле ввода!'
             need_skip = False
             need_reload = True
-            result = (need_skip, need_reload, error_msg)
-            return result
+            return need_skip, need_reload, error_msg, answer
         except Error:
             error_msg = 'Не найдено поле ввода!'
             need_skip = False
             need_reload = True
-            result = (need_skip, need_reload, error_msg)
-            return result
+            return need_skip, need_reload, error_msg, answer
 
-        return result
+        return need_skip, need_reload, error_msg, answer
 
     # ищем ответ в базе AI
     def __input_text_answer_ai(self, type_question: str, raw_text_question: str) -> str:
@@ -652,11 +638,10 @@ class SynergyParser:
         return (id_answer, id_question)
 
     # Выбирает правильный ответ из вариантов
-    def __choose_correct_answer(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str]:
-        error_msg = ''
+    def __choose_correct_answer(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str, str]:
         need_skip = False
         need_reload = False
-        result = (need_skip, need_reload, error_msg)
+        error_msg = ''
         id_answer = ''
         id_question = 0
 
@@ -674,16 +659,15 @@ class SynergyParser:
                 f'Найденный id ответа: {id_answer}\nНайденный id вопроса: {id_question}')
 
         have_image = ai_search.have_image_in_question(self.page)
-        raw_text_question = ai_search.get_text_answer(self.page,
-                                                      self.__name_ai)
+        # raw_text_question = ai_search.get_text_answer(self.page,
+        #                                               self.__name_ai)
 
         if not id_answer and not self.__use_ai:
             error_msg = 'Не найден единственный правильный ответ при выключенном AI!'
             need_skip = True
             need_reload = False
             self.__count_unfound_answers += 1
-            result = (need_skip, need_reload, error_msg)
-            return result
+            return need_skip, need_reload, error_msg, id_answer
         elif not id_answer and self.__use_ai and have_image:
             id_answer = self.__choose_correct_answer_ai(type_question,
                                                         raw_text_question)
@@ -713,8 +697,7 @@ class SynergyParser:
 
                 if error_msg:
                     self.__count_unfound_answers += 1
-                    result = (need_skip, need_reload, error_msg)
-                    return result
+                    return need_skip, need_reload, error_msg, id_answer
 
                 for key in ai_dict:
                     id_answer += key
@@ -731,8 +714,14 @@ class SynergyParser:
             self.__questions_answers.append(question_answer)
 
         radio_button = self.page.locator(f'input[value="{id_answer}"]')
+        label = self.page.locator(f'label[for="answers-{id_answer}"]')
 
         try:
+            text_answer = label.text_content()
+
+            if text_answer:
+                service.logging(f'Ответ: {text_answer}', self.__path_log_file)
+
             # radio_button.click(delay=200)
             radio_button.focus()
             radio_button.dispatch_event('click')
@@ -741,9 +730,9 @@ class SynergyParser:
             error_msg = 'Не найдена галочка в ответе'
             need_skip = False
             need_reload = True
-            result = (need_skip, need_reload, error_msg)
+            return need_skip, need_reload, error_msg, id_answer
 
-        return result
+        return need_skip, need_reload, error_msg, id_answer
 
     # Полчает ответы из базы ответов AI, если они есть перебирает каждую галочку пока не найдет ее в списке верных ответов
 
@@ -825,11 +814,10 @@ class SynergyParser:
         return (id_answers, id_question)
 
     # Заполняет несколько правильных ответов на странице
-    def __choose_multiple_answers(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str]:
-        error_msg = ''
+    def __choose_multiple_answers(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str, str]:
         need_skip = False
         need_reload = False
-        result = (need_skip, need_reload, error_msg)
+        error_msg = ''
         id_answers = ''
         id_question = 0
 
@@ -854,8 +842,7 @@ class SynergyParser:
             need_skip = True
             need_reload = False
             self.__count_unfound_answers += 1
-            result = (need_skip, need_reload, error_msg)
-            return result
+            return need_skip, need_reload, error_msg, id_answers
         elif not id_answers and self.__use_ai:
             have_image = ai_search.have_image_in_question(self.page)
 
@@ -864,11 +851,10 @@ class SynergyParser:
                 need_skip = True
                 need_reload = False
                 self.__count_unfound_answers += 1
-                result = (need_skip, need_reload, error_msg)
-                return result
+                return need_skip, need_reload, error_msg, id_answers
 
-            raw_text_question = ai_search.get_text_answer(self.page,
-                                                          self.__name_ai)
+            # raw_text_question = ai_search.get_text_answer(self.page,
+            #                                               self.__name_ai)
             variants_answers = ai_search.get_variants_answers_for_choice(self.page,
                                                                          True)
             ai_answer, error_msg = ai_search.ai_search(
@@ -883,8 +869,7 @@ class SynergyParser:
 
             if error_msg:
                 self.__count_unfound_answers += 1
-                result = (need_skip, need_reload, error_msg)
-                return result
+                return need_skip, need_reload, error_msg, id_answers
 
             for key in ai_dict:
                 id_answers += f'{key},'
@@ -911,9 +896,9 @@ class SynergyParser:
                 error_msg = 'Не найдена галочка в ответе'
                 need_skip = False
                 need_reload = False
-                result = (need_skip, need_reload, error_msg)
+                return need_skip, need_reload, error_msg, id_answers
 
-        return result
+        return need_skip, need_reload, error_msg, id_answers
 
     # Проверяет соответствие ответов из БД текущим ответам на странице и возвращает ответы в правильном порядке из БД
     # current_id_answers - текущий порядок ответов на странице
@@ -957,11 +942,11 @@ class SynergyParser:
         return (correct_id_answers, id_question)
 
     # Сначала проверяет корректность текущего порядка ответов и если надо перетаскивает их
-    def __sorting_answers(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str]:
+    def __sorting_answers(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str, str]:
         error_msg = ''
         need_skip = False
         need_reload = False
-        result = (need_skip, need_reload, error_msg)
+        correct_response = ''
 
         # return result # пока что просто нажмем Ответить, все равно сортировка всегда верна
 
@@ -998,15 +983,15 @@ class SynergyParser:
         #     correct_id_answers = []
 
         if current_id_answers != correct_id_answers and not self.__use_ai:
-            error_msg = 'Вопрос пропущен из-за наличия картинки при поиске AI!'
+            error_msg = 'Вопрос пропущен из-за неверного порядка!'
             need_skip = True
             need_reload = False
             self.__count_unfound_answers += 1
-            result = (need_skip, need_reload, error_msg)
-            return result
+            correct_response = ','.join(correct_id_answers)
+            return need_skip, need_reload, error_msg, correct_response
         elif current_id_answers != correct_id_answers and self.__use_ai:
-            raw_text_question = ai_search.get_text_answer(self.page,
-                                                          self.__name_ai)
+            # raw_text_question = ai_search.get_text_answer(self.page,
+            #                                               self.__name_ai)
             variants_answers = ai_search.get_variants_answers_for_sort(
                 self.page)
             ai_answer, error_msg = ai_search.ai_search(
@@ -1027,20 +1012,21 @@ class SynergyParser:
             }
             self.__questions_answers.append(question_answer)
             correct_id_answers = ai_answer.split(',')
+            correct_response = ai_answer
 
             if current_id_answers != correct_id_answers:
                 error_msg = 'Обнаружен неверный порядок ответов! При включенном AI'
                 need_skip = True
                 need_reload = False
                 self.__count_unfound_answers += 1
-                result = (need_skip, need_reload, error_msg)
+                return need_skip, need_reload, error_msg, correct_response
 
             # На самом деле робот далее просто жмет Ответить без проверки. Скорее всего порядок верен изначально
 
         ######################################################
         # Перетаскивание пока не реализовано в виду ненужности
 
-        return result
+        return need_skip, need_reload, error_msg, correct_response
 
     # Находит правильный набор ответов, если их несколько
     def __check_matching_answers(self, answers: list) -> tuple[str, int]:
@@ -1083,14 +1069,14 @@ class SynergyParser:
 
                 break
 
-        return (correct_response, id_question)
+        return correct_response, id_question
 
     # перетаскивает блоки для соответствия
-    def __matching_answers(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str]:
-        error_msg = ''
+    def __matching_answers(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str, str]:
         need_skip = False
         need_reload = False
-        result = (need_skip, need_reload, error_msg)
+        error_msg = ''
+        correct_response = ''
         # получим заполненный список левой стороны ABCD
         left_side = self.page.locator('div.docLeft div.dragItem').all()
         # получим пустые клетки правой стороны
@@ -1098,7 +1084,6 @@ class SynergyParser:
         # сформируем список пар (кортежей) левой стороны и пустых клеток(локаторов) справа
         pair_left_right = [(left_side[i], right_side_empty[i])
                            for i in range(0, len(left_side))]
-        correct_response = ''
         id_question = 0
 
         if not self.__use_only_ai_search():
@@ -1136,8 +1121,8 @@ class SynergyParser:
             correct_response = default_response
         elif not correct_response and self.__use_ai:
             have_image = ai_search.have_image_in_question(self.page)
-            raw_text_question = ai_search.get_text_answer(self.page,
-                                                          self.__name_ai)
+            # raw_text_question = ai_search.get_text_answer(self.page,
+            #                                               self.__name_ai)
 
             if have_image:
                 service.logging(
@@ -1185,23 +1170,21 @@ class SynergyParser:
                     try:
                         block.drag_to(pair[1])
                     except TimeoutError:
-                        error_msg = 'Ошибка при перетаскивании блока'
+                        error_msg = 'Ошибка TimeoutError при перетаскивании блока'
                         need_skip = True
                         need_reload = False
                         self.__count_unfound_answers += 1
-                        result = (need_skip, need_reload, error_msg)
-                        return result
+                        return need_skip, need_reload, error_msg, correct_response
                     except Error:
-                        error_msg = 'Ошибка при перетаскивании блока'
+                        error_msg = 'Ошибка Error при перетаскивании блока'
                         need_skip = True
                         self.__count_unfound_answers += 1
                         need_reload = False
-                        result = (need_skip, need_reload, error_msg)
-                        return result
+                        return need_skip, need_reload, error_msg, correct_response
 
                     break
 
-        return result
+        return need_skip, need_reload, error_msg, correct_response
 
     # Проверяет правильность ответов и выбирает подходящий, когда их несколько в БД на один текст вопроса
     def __check_sequence_answers(self, answers: list[str]) -> tuple[str, int]:
@@ -1243,11 +1226,10 @@ class SynergyParser:
         return (id_answers, id_question)
 
     # перетаскивает блоки в сложной сортировке
-    def __sequence_answers(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str]:
-        error_msg = ''
+    def __sequence_answers(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str, str]:
         need_skip = False
         need_reload = False
-        result = (need_skip, need_reload, error_msg)
+        error_msg = ''
         correct_response = ''
         id_question = 0
 
@@ -1272,8 +1254,7 @@ class SynergyParser:
             need_skip = True
             need_reload = False
             self.__count_unfound_answers += 1
-            result = (need_skip, need_reload, error_msg)
-            return result
+            return need_skip, need_reload, error_msg, correct_response
         elif not correct_response and self.__use_ai:
             have_image = ai_search.have_image_in_question(self.page)
 
@@ -1282,11 +1263,10 @@ class SynergyParser:
                 need_skip = True
                 need_reload = False
                 self.__count_unfound_answers += 1
-                result = (need_skip, need_reload, error_msg)
-                return result
+                return need_skip, need_reload, error_msg, correct_response
 
-            raw_text_question = ai_search.get_text_answer(self.page,
-                                                          self.__name_ai)
+            # raw_text_question = ai_search.get_text_answer(self.page,
+            #                                               self.__name_ai)
             variants_answers = ai_search.get_variants_answers_for_sort_sequence(
                 self.page)
             ai_answer, error_msg = ai_search.ai_search(
@@ -1301,8 +1281,7 @@ class SynergyParser:
 
             if error_msg:
                 self.__count_unfound_answers += 1
-                result = (need_skip, need_reload, error_msg)
-                return result
+                return need_skip, need_reload, error_msg, correct_response
 
             for key in ai_dict:
                 correct_response += f'{key},'
@@ -1327,23 +1306,21 @@ class SynergyParser:
             try:
                 block_answer.drag_to(block_answers)
             except TimeoutError:
-                error_msg = 'Ошибка при перетаскивании блока'
+                error_msg = 'Ошибка TimeoutError при перетаскивании блока'
                 need_skip = True
                 need_reload = False
                 self.__count_unfound_answers += 1
-                result = (need_skip, need_reload, error_msg)
-                return result
+                return need_skip, need_reload, error_msg, correct_response
             except Error:
-                error_msg = 'Ошибка при перетаскивании блока'
+                error_msg = 'Ошибка Error при перетаскивании блока'
                 need_skip = True
                 self.__count_unfound_answers += 1
                 need_reload = False
-                result = (need_skip, need_reload, error_msg)
-                return result
+                return need_skip, need_reload, error_msg, correct_response
 
             break
 
-        return result
+        return need_skip, need_reload, error_msg, correct_response
 
     def __check_matching_multiple_answers(self, answers: list) -> tuple[str, int]:
         result = ('', 0)
@@ -1387,10 +1364,11 @@ class SynergyParser:
         return (correct_response, id_question)
 
     # Перетаскивает блоки по соответствий как выше, только сложнее, одному блоку соответствует несколько других
-    def __matching_multiple_answers(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str]:
-        error_msg = ''
+    def __matching_multiple_answers(self, variants_question: list[str], type_question: str, raw_text_question: str) -> tuple[bool, bool, str, str]:
         need_skip = False
         need_reload = False
+        error_msg = ''
+        correct_response = ''
         result = (need_skip, need_reload, error_msg)
         # Обработаем вариант с множественными соответствиями
         # получим заполненный список левой стороны ABC
@@ -1400,7 +1378,6 @@ class SynergyParser:
         # сформируем список пар (кортежей) левой стороны и пустых клеток справа
         pair_left_right = [(left_side[i], right_side_empty[i])
                            for i in range(0, len(left_side))]
-        correct_response = ''
         id_question = 0
 
         if not self.__use_only_ai_search():
@@ -1452,8 +1429,8 @@ class SynergyParser:
             correct_response = default_response
         if not correct_response and self.__use_ai:
             have_image = ai_search.have_image_in_question(self.page)
-            raw_text_question = ai_search.get_text_answer(self.page,
-                                                          self.__name_ai)
+            # raw_text_question = ai_search.get_text_answer(self.page,
+            #                                               self.__name_ai)
 
             if have_image:
                 service.logging(
@@ -1510,19 +1487,17 @@ class SynergyParser:
                             need_skip = True
                             need_reload = False
                             self.__count_unfound_answers += 1
-                            result = (need_skip, need_reload, error_msg)
-                            return result
+                            return need_skip, need_reload, error_msg, correct_response
                         except Error:
                             error_msg = 'Ошибка при перетаскивании блоков!'
                             need_skip = True
                             need_reload = False
                             self.__count_unfound_answers += 1
-                            result = (need_skip, need_reload, error_msg)
-                            return result
+                            return need_skip, need_reload, error_msg, correct_response
 
                     break
 
-        return result
+        return need_skip, need_reload, error_msg, correct_response
 
     def __find_answer_by_text(self, text_variant: str, type_question: str) -> list[tuple]:
         answers = []

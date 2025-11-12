@@ -227,7 +227,7 @@ class SynergyParser:
             return error_msg
 
         if config.DEBUG:
-            print(f'Поисковые фразы:\n{variants_question}')
+            print(f'Поисковые фразы:\n{variants_question}')         
 
         service.logging(f'Вопрос: {raw_text_question}', self.__path_log_file)
         type_question, error_msg = self.__get_question_type()
@@ -596,8 +596,7 @@ class SynergyParser:
     def __input_text_answer_ai(self, type_question: str, raw_text_question: str) -> str:
         correct_response = ''
         answer_info = model.get_correct_answer_info_from_ai_answers(raw_text_question,
-                                                                    type_question,
-                                                                    self.__current_discipline)
+                                                                    type_question)
 
         if answer_info:
             correct_responses = [answer[0] for answer in answer_info]
@@ -671,13 +670,15 @@ class SynergyParser:
         elif not id_answer and self.__use_ai and have_image:
             id_answer = self.__choose_correct_answer_ai(type_question,
                                                         raw_text_question)
+            service.logging(
+                f'Вопрос с картинкой, ищем ответ по базе AI: {id_answer}', self.__path_log_file)
 
             if not id_answer:
                 id_answer = self.__choose_correct_answer_random(type_question,
                                                                 raw_text_question)
+                service.logging(
+                    f'Выбираем случайный ответ: {id_answer}', self.__path_log_file)
 
-            service.logging(
-                f'В вопросе есть картинка, ищем по базе AI или используем случайный ответ: {id_answer}', self.__path_log_file)
         elif not id_answer and self.__use_ai and not have_image:
             id_answer = self.__choose_correct_answer_ai(type_question,
                                                         raw_text_question)
@@ -735,13 +736,11 @@ class SynergyParser:
         return need_skip, need_reload, error_msg, id_answer
 
     # Полчает ответы из базы ответов AI, если они есть перебирает каждую галочку пока не найдет ее в списке верных ответов
-
     def __choose_correct_answer_ai(self, type_question: str, raw_text_question: str) -> str:
         found_answer = ''
         radio_buttons = self.page.locator('div.test-answers>input').all()
         answer_info = model.get_correct_answer_info_from_ai_answers(raw_text_question,
-                                                                    type_question,
-                                                                    self.__current_discipline)
+                                                                    type_question)
 
         if answer_info:
             correct_responses = [answer[0] for answer in answer_info]
@@ -774,7 +773,12 @@ class SynergyParser:
                 found_answer = response
                 break
 
-        return found_answer
+        if not found_answer:
+            service.logging(
+                'В переборе choose_correct все ответы не верные. Надо проверить базу AI!', self.__path_log_file)
+            found_answer = radio_buttons[0].get_attribute('value')
+
+        return found_answer  # type: ignore
 
     def __check_multiple_answers(self, answers: list) -> tuple[str, int]:
         result = ('', 0)
@@ -1547,7 +1551,7 @@ class SynergyParser:
     # а далее на отдельные слова не короче 6 символов по иностранному тексту или по тексту без тегов
     # Второй элемент это сырой вопрос с тегами
     # Третий элемент кортежа сообщение об ошибке
-    # Для поиска с AI есть более простая функция для получения сырого текста вопроса
+    # Для поиска с AI есть более простая функция для получения сырого текста вопроса (не используется так как будет путаница)
     def __get_question(self) -> tuple[list[str], str, str]:
         error_msg = ''
         variants_question = []
@@ -1613,7 +1617,10 @@ class SynergyParser:
 
             # проверим еще раз наш список поисковых фраз на предмет слов короче 6 букв
             variants_question = [word for word in variants_question if len(
-                word) > 5 and word[0] != '&']
+                word) > 5 and word[0] != '&' and word[-1] != ',']
+            
+            # Уберу слова по которым не нужно делать поиск в БД ответов из-за долгого времени поиска
+            variants_question = service.delete_spam_words(variants_question)
 
             # оставлю только 5 вариантов фраз для поиска
             if len(variants_question) > 5:

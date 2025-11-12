@@ -7,7 +7,7 @@ MODEL_AI = ai_model.get_ai_model_openai()
 
 def ai_search(question: str, name_ai: str) -> str:
     ai_answer = ''
-    response = MODEL_AI.chat.completions.create(
+    response = MODEL_AI.chat.completions.create( # type: ignore
         model=name_ai,
         messages=[
             {"role": "user", "content": question},

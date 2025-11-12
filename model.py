@@ -45,7 +45,7 @@ def create_ai_answers_db() -> None:
         responseId INTEGER PRIMARY KEY AUTOINCREMENT,
         questionId INTEGER NOT NULL,
         incorrectResponse TEXT NOT NULL,
-        FOREIGN KEY (questionId) REFERENCES question_answers(responseId));
+        FOREIGN KEY (questionId) REFERENCES question_answers(responseId) ON DELETE CASCADE);
         CREATE INDEX IF NOT EXISTS idx_incorrect_responses_questionId ON incorrect_responses(questionId)
         """)
 
@@ -218,9 +218,9 @@ def save_new_question_block(con: sq.Connection, title_discipline: str) -> int:
 
 
 # Записывает новый вопрос в базу AI
-def save_new_question(con: sq.Connection, question: str, question_type: str, question_block_id: int, correct_response: str) -> int:
+def save_new_question(con: sq.Connection, question: str, type_question: str, question_block_id: int, correct_response: str = '') -> int:
     cur = con.cursor()
-    parameters = (question, question_type,
+    parameters = (question, type_question,
                   correct_response, question_block_id, datetime.now().date(),)
     cur.execute("""
     INSERT INTO question_answers (question, questionType, correctResponse, questionBlockId, created)
@@ -228,22 +228,51 @@ def save_new_question(con: sq.Connection, question: str, question_type: str, que
     """, parameters)
     con.commit()
     question_id = get_question_id(question,
-                                  question_type,
+                                  type_question,
                                   question_block_id)
 
     return question_id
 
 
-# возвращает список найденных корректных ответов (возможны колизии) из базы AI
-def get_correct_answer_info_from_ai_answers(question: str, type_question: str, discipline: str) -> list[tuple[str, int, int]]:
-    answer_info = []
-    # question_block_id = get_question_block_id(discipline)
+# перезаписывает вопрос с пустым ответом с новым правильным ответом
+def update_question(con: sq.Connection, question: str, type_question: str, question_block_id: int, correct_response: str) -> None:
+    parameters = (correct_response, question,
+                  type_question, question_block_id, '')
+    cur = con.cursor()
+    cur.execute("""
+    UPDATE question_answers SET correctResponse=? 
+    WHERE question=? AND questionType=? AND questionBlockId=? AND correctResponse=?
+    """, parameters)
 
-    # if not question_block_id:
-    #     return answer_info
+
+# стирает верный ответ из базы AI если вдруг выясниться, что он перестал быть верным по результатам теста
+# и удаляет связанные с ним неверные ответы
+def clear_response_question(question: str, type_question: str, question_block_id: int, correct_response: str) -> None:
+    question_id = get_question_id(question, type_question, question_block_id, correct_response)
+
+    if not question_id:
+        return
 
     with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
-        parameters = ('', question, type_question)
+        parameters = ('', question_id,)
+        cur = con.cursor()
+        cur.execute("""
+        UPDATE question_answers SET correctResponse=? 
+        WHERE questionId=?
+        """, parameters)
+        parameters = (question_id,)
+        cur.execute("""
+        DELETE FROM incorrect_responses 
+        WHERE questionId=?
+        """, parameters)
+
+
+# возвращает список найденных корректных ответов (возможны колизии) из базы AI
+def get_correct_answer_info_from_ai_answers(question: str, type_question: str) -> list[tuple[str, int, int]]:
+    answer_info = []
+
+    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
+        parameters = ('', question, type_question,)
         cur = con.cursor()
         cur.execute("""
         SELECT correctResponse, questionId, questionBlockId FROM question_answers 
@@ -278,45 +307,60 @@ def get_question_block_id(title_discipline: str) -> int:
     return question_block_id
 
 
-def get_question_id(question: str, question_type: str, question_block_id: int, correct_response: str = '') -> int:
+# Ищет id вопроса. ВНИМАНИЕ если correct_response не задан, то ищет только вопрос с отсутствующим ответом
+def get_question_id(question: str, type_question: str, question_block_id: int, correct_response: str = '') -> int:
     question_id = 0
 
     with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
         cur = con.cursor()
-        parameters = (question, question_type, question_block_id,)
+        parameters = (question, type_question, question_block_id,
+                      correct_response,)
         cur.execute("""
         SELECT questionId FROM question_answers 
-        WHERE question=? and questionType=? and questionBlockId=?
+        WHERE question=? AND questionType=? AND questionBlockId=? AND correctResponse=?
         """, parameters)
         row = cur.fetchone()
 
         if row:
             question_id = row[0]
-        else:
-            question_id = save_new_question(con,
-                                            question,
-                                            question_type,
-                                            question_block_id,
-                                            correct_response)
 
     return question_id
 
 
 # Запись верного ответа от AI в специальную базу ответов
-def save_correct_answer(question_answer: dict) -> None:
-    title_discipline = question_answer.get('questionBlock')
-    question_block_id = get_question_block_id(
-        title_discipline)  # type: ignore
+def save_correct_answer(question_answer: dict[str, str]) -> None:
+    title_discipline = question_answer.get('questionBlock', '')
+    question = question_answer.get('question', '')
+    type_question = question_answer.get('questionType', '')
+    correct_response = question_answer.get('correctResponse', '')
+    question_block_id = get_question_block_id(title_discipline)
+    # проверим есть ли уже в базе правильный ответ
+    question_id = get_question_id(question,
+                                  type_question,
+                                  question_block_id,
+                                  correct_response)
+
+    if question_id:
+        return
+
+    # проверим есть ли в базе вопрос с пустым ответом
+    question_id = get_question_id(question,
+                                  type_question,
+                                  question_block_id)
 
     with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
-        question = question_answer.get('question')
-        question_type = question_answer.get('questionType')
-        correct_response = question_answer.get('correctResponse')
-        save_new_question(con,
-                          question,  # type: ignore
-                          question_type,  # type: ignore
-                          question_block_id,
-                          correct_response)  # type: ignore
+        if question_id:
+            update_question(con,
+                            question,
+                            type_question,
+                            question_block_id,
+                            correct_response)
+        else:
+            save_new_question(con,
+                              question,
+                              type_question,
+                              question_block_id,
+                              correct_response)
 
 
 def get_incorrect_response_id(incorrect_response: str, question_id: int) -> int:
@@ -338,24 +382,31 @@ def get_incorrect_response_id(incorrect_response: str, question_id: int) -> int:
 
 
 # Запись неверного ответа от AI в специальную таблицу ответов
-def save_incorrect_answer(question_answer: dict) -> None:
-    if question_answer.get('questionType') == 'textEntry':
+def save_incorrect_answer(question_answer: dict[str, str]) -> None:
+    incorrect_response = question_answer.get('correctResponse', '')
+    type_question = question_answer.get('questionType', '')
+
+    if type_question == 'textEntry' or not incorrect_response:
         return
 
+    title_discipline = question_answer.get('questionBlock', '')
+    question_block_id = get_question_block_id(title_discipline)
+    question = question_answer.get('question', '')
+
+    question_id = get_question_id(question,
+                                  type_question,
+                                  question_block_id)
+
     with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
-        title_discipline = question_answer.get('questionBlock')
-        question_block_id = get_question_block_id(
-            title_discipline)  # type: ignore
         cur = con.cursor()
 
-        question = question_answer.get('question')
-        question_type = question_answer.get('questionType')
-        question_id = get_question_id(question,  # type: ignore
-                                      question_type,  # type: ignore
-                                      question_block_id)
+        if not question_id:
+            question_id = save_new_question(con,
+                                            question,
+                                            type_question,
+                                            question_block_id)
 
-        incorrect_response = question_answer.get('correctResponse')
-        incorrect_response_id = get_incorrect_response_id(incorrect_response,  # type: ignore
+        incorrect_response_id = get_incorrect_response_id(incorrect_response,
                                                           question_id)
 
         if not incorrect_response_id:

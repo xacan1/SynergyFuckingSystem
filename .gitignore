@@ -2,6 +2,7 @@
 /build/
 /dist/
 /errors/
+/.vscode/
 **/__pycache__/
 **/photos/
 **/*.sqlite3

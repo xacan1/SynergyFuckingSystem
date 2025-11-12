@@ -63,6 +63,21 @@ def replace_mnemonics_html(text_question: str) -> str:
     return text_question
 
 
+# Удаляет мусорные слова из-за которых поиск по БД становится очень долгим
+def delete_spam_words(variants_question: list[str]) -> list[str]:
+    spam_words = [
+        'Неверно',
+    ]
+
+    for spam in spam_words:
+        try:
+            variants_question.remove(spam)
+        except ValueError:
+            continue
+
+    return variants_question
+
+
 def get_only_foreign_text(text_question: str) -> str:
     # отделю иностранный текст от русского если он есть
     foreign_words = RE_GET_LATINIAN_TEXT.findall(text_question)
@@ -118,7 +133,7 @@ def get_access() -> bool:
     result = False
 
     try:
-        with winreg.OpenKeyEx(winreg.HKEY_CURRENT_USER, 'Software\SFS') as key:  # type: ignore
+        with winreg.OpenKeyEx(winreg.HKEY_CURRENT_USER, r'Software\SFS') as key:  # type: ignore
             value, type_value = winreg.QueryValueEx(key, 'SFS_key')
             result = (value == config.KEY_ACCESS_VALUE)
     except FileNotFoundError:
@@ -180,9 +195,9 @@ def delete_wrong_symbols(file_name: str) -> str:
     if file_name[-1] == '.' or file_name[-1] == ' ':
         file_name[-1] = ''  # type: ignore
 
-    table = str.maketrans('', '', '\/:*?"<>|')  # type: ignore
+    table = str.maketrans('', '', r'\/:*?"<>|')  # type: ignore
     return file_name.translate(table)
-    
+
 
 def create_log_file(page: Page, discipline: str) -> tuple[str, str]:
     path_log_file = ''
@@ -240,8 +255,8 @@ def logging(line: str, path_log_file: str) -> None:
             f.write(f'{time_log} {line}\n')
     except FileNotFoundError:
         pass
-    
-    
+
+
 def get_check_list_result_test(page: Page) -> dict:
     result_test = {}
     # page.locator('a[id="statistic"]').wait_for()
@@ -280,6 +295,13 @@ def check_and_save_result_test(page: Page, questions_answers: list[dict]):
         result = check_list.get(question, '').lower()
 
         if 'не' in result:
+            type_question = question_answer.get('questionType', '')
+            title_discipline = question_answer.get('questionBlock', '')
+            correct_response = question_answer.get('correctResponse', '')
+            question_block_id = model.get_question_block_id(title_discipline)
+            # вдруг данный ответ является не верным, а он записан в базе. Очистим его.
+            model.clear_response_question(
+                question, type_question, question_block_id, correct_response)
             model.save_incorrect_answer(question_answer)
         else:
             model.save_correct_answer(question_answer)

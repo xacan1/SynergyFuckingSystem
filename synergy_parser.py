@@ -8,6 +8,7 @@ import time
 import proxies
 import service
 import ai_search
+import search_answers_without_id as sawi
 
 
 # словарь-соответствие между обозначанием типа ответов на странице и в БД questionType
@@ -38,7 +39,7 @@ class SynergyParser:
                                                                '--start-maximized'],
                                                            ignore_default_args=[
                                                                '--enable-automation'],
-                                                           proxy=proxies.get_proxy_settings(self.proxy_info))  # type: ignore
+                                                           proxy=proxies.get_proxy_settings(self.proxy_info)) # type: ignore
         self.__context = self.__browser.new_context(user_agent=self.ua.random,
                                                     no_viewport=True)
         self.__context.grant_permissions(permissions=['camera'])
@@ -61,7 +62,8 @@ class SynergyParser:
         self.__use_ai = self.__settings.get('use_ai', 0)
         self.__only_ai_search = self.__settings.get('only_ai_search', 0)
         self.__name_ai = self.__settings.get('name_ai', '')
-        self.__questions_answers = []  # список словарей {вопрос: ответ}
+        # список словарей {вопрос: ответ} для проверки на правильность после завершения теста
+        self.__questions_answers = []
 
     def __set_hotkey(self) -> None:
         if self.__settings.get('use_hotkey', 0):
@@ -227,7 +229,7 @@ class SynergyParser:
             return error_msg
 
         if config.DEBUG:
-            print(f'Поисковые фразы:\n{variants_question}')         
+            print(f'Поисковые фразы:\n{variants_question}')
 
         service.logging(f'Вопрос: {raw_text_question}', self.__path_log_file)
         type_question, error_msg = self.__get_question_type()
@@ -394,25 +396,57 @@ class SynergyParser:
         answer = ''
 
         if type_question == 'textEntry':
-            need_skip, need_reload, error_msg, answer = self.__input_text_answer(variants_question,
-                                                                                 type_question,
-                                                                                 raw_text_question)
-        elif type_question == 'choice':
-            need_skip, need_reload, error_msg, answer = self.__choose_correct_answer(variants_question,
+            need_skip, need_reload, error_msg, answer = sawi.input_text_answer(self.page,
+                                                                               raw_text_question,
+                                                                               type_question,
+                                                                               self.__path_log_file)
+
+            if not answer:
+                need_skip, need_reload, error_msg, answer = self.__input_text_answer(variants_question,
                                                                                      type_question,
                                                                                      raw_text_question)
+
+        elif type_question == 'choice':
+            need_skip, need_reload, error_msg, answer = sawi.choose_correct_answer(self.page,
+                                                                                   raw_text_question,
+                                                                                   type_question,
+                                                                                   self.__path_log_file)
+
+            if not answer:
+                need_skip, need_reload, error_msg, answer = self.__choose_correct_answer(variants_question,
+                                                                                         type_question,
+                                                                                         raw_text_question)
+
         elif type_question == 'choiceMultiple':
-            need_skip, need_reload, error_msg, answer = self.__choose_multiple_answers(variants_question,
-                                                                                       type_question,
-                                                                                       raw_text_question)
+            need_skip, need_reload, error_msg, answer = sawi.choose_multiple_answers(self.page,
+                                                                                     raw_text_question,
+                                                                                     type_question,
+                                                                                     self.__path_log_file)
+            
+            if not answer:
+                need_skip, need_reload, error_msg, answer = self.__choose_multiple_answers(variants_question,
+                                                                                           type_question,
+                                                                                           raw_text_question)
+            else:
+                service.logging(f'Найден ответ в базе без ID.', self.__path_log_file)
+
         elif type_question == 'order':
             need_skip, need_reload, error_msg, answer = self.__sorting_answers(variants_question,
                                                                                type_question,
                                                                                raw_text_question)
         elif type_question == 'match':
-            need_skip, need_reload, error_msg, answer = self.__matching_answers(variants_question,
-                                                                                type_question,
-                                                                                raw_text_question)
+            need_skip, need_reload, error_msg, answer = sawi.check_matching_answers(self.page,
+                                                                                    raw_text_question,
+                                                                                    type_question,
+                                                                                    self.__path_log_file)
+
+            if not answer:
+                need_skip, need_reload, error_msg, answer = self.__matching_answers(variants_question,
+                                                                                    type_question,
+                                                                                    raw_text_question)
+            else:
+                service.logging(f'Найден ответ в базе без ID.', self.__path_log_file)
+
         elif type_question == 'matchMultiple':
             need_skip, need_reload, error_msg, answer = self.__matching_multiple_answers(variants_question,
                                                                                          type_question,
@@ -444,6 +478,8 @@ class SynergyParser:
             clear_text_answer = text_answer.split(';')[0]
 
         # если слово дублируется, то возьмем только первый дуликат
+        # для этого если слово имеет четное число букв, есть вероятность дублежа.
+        # значит делим его пополам и сравниваем две части
         len_text_answer = len(text_answer)
 
         if not len_text_answer % 2:
@@ -1618,7 +1654,7 @@ class SynergyParser:
             # проверим еще раз наш список поисковых фраз на предмет слов короче 6 букв
             variants_question = [word for word in variants_question if len(
                 word) > 5 and word[0] != '&' and word[-1] != ',']
-            
+
             # Уберу слова по которым не нужно делать поиск в БД ответов из-за долгого времени поиска
             variants_question = service.delete_spam_words(variants_question)
 

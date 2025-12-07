@@ -7,7 +7,7 @@ import model
 def main() -> None:
     model.create_proxies_db()
     model.create_ai_answers_db()
-    sp = SynergyParser(config.START_URL)
+    sp = SynergyParser(config.START_TEST_URL)
 
     if not get_access():
         return

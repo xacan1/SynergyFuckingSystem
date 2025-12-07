@@ -144,7 +144,7 @@ def get_access() -> bool:
 
 
 # Получает ответ от AI в виде словаря
-def load_json(s: str) -> tuple[dict, bool, bool, str]:
+def load_json(s: str) -> tuple[dict[str,str], bool, bool, str]:
     error_msg = ''
     need_skip = False
     need_reload = False

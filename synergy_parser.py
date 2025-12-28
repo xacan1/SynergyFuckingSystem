@@ -1,4 +1,4 @@
-from playwright.sync_api import sync_playwright, TimeoutError, Error, expect
+from playwright.sync_api import sync_playwright, TimeoutError, Error
 from fake_useragent import UserAgent
 from datetime import datetime
 import keyboard
@@ -174,10 +174,8 @@ class SynergyParser:
 
                 if config.DEBUG:
                     print('ВЕРНУЛИСЬ ИЗ __begin_autotest')
-        except TimeoutError:
-            error_msg = 'Не обнаружен таймер теста'
-        except Error:
-            error_msg = 'Не обнаружен таймер теста ...'
+        except Error as exp:
+            error_msg = 'Неизвестная ошибка внутри __begin_autotest ...'
 
         if error_msg:
             if config.DEBUG:
@@ -372,11 +370,11 @@ class SynergyParser:
             error_msg = 'Не удалось найти форму с вопросом!'
             result = (type_question, error_msg)
             return result
-        except Error:
-            error_msg = 'Не удалось найти форму с вопросом!'
+        except Error as exp:
+            error_msg = f'Не удалось найти форму с вопросом: {exp}'
             result = (type_question, error_msg)
             return result
-
+       
         for key, value in self.__matching_question_types.items():
             if form.get_by_text(key).count() == 1:
                 type_question = value

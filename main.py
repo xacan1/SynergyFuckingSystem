@@ -2,12 +2,13 @@ from synergy_parser import SynergyParser, config, Error
 from service import get_access
 import model
 
+# pyinstaller -F -w --collect-datas=fake_useragent --icon=AvaHack.ico main.py
 # $env:PLAYWRIGHT_BROWSERS_PATH="0"
 
 def main() -> None:
     model.create_proxies_db()
     model.create_ai_answers_db()
-    sp = SynergyParser(config.START_TEST_URL)
+    sp = SynergyParser(config.START_URL)
 
     if not get_access():
         return

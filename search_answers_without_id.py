@@ -138,6 +138,8 @@ def check_matching_answers(page: Page, raw_text_question: str, type_question: st
 
     text_answers, id_answer = sawi_model.find_answer(raw_text_question,
                                                      type_question)
+
+    id_answer = ''
     
     # получим все варианты ответов на странице
     # answers_on_page = page.locator('div.test-answers').all()
@@ -146,28 +148,32 @@ def check_matching_answers(page: Page, raw_text_question: str, type_question: st
     right_side = page.locator('form[id="player-assessments-form"]>div>ul>div[style="float: right; width: 45%"]>li').all()
     
     for left_item in left_side:
-        left_litera = left_item.locator('div>p').text_content()
-        left_text = left_item.locator('div>div').text_content()
-        
-        if left_litera is not None:
-            left_litera = left_litera.strip()   
-        
-        if left_text is not None:
-            left_text = left_text.strip()
-            
-        # print(left_litera, left_text)
+        try:
+            left_litera = left_item.locator('div>p[style="display: inline-block; width: 8%; box-sizing: border-box; vertical-align: top; padding-top: 22px; color: blue; font-weight: bold;"]').text_content()
+            left_text = left_item.locator('div>div').text_content()          
+
+            if left_litera is not None:
+                left_litera = left_litera.strip()   
+
+            if left_text is not None:
+                left_text = left_text.strip()
+
+        except Error as exp:
+            service.logging(f'Не удалось найти вариант ответа в левой части', path_log_file)
         
     for right_item in right_side:
-        right_litera = right_item.locator('div>p').text_content()
-        right_text = right_item.locator('div>div').text_content()
-        
-        if right_litera is not None:
-            right_litera = right_litera.strip()   
-        
-        if right_text is not None:
-            right_text = right_text.strip()
+        try:
+            right_litera = right_item.locator('div>p[style="display: inline-block; width: 8%; box-sizing: border-box; vertical-align: top; padding-top: 22px; color: green; font-weight: bold;"]').text_content()
+            right_text = right_item.locator('div>div').text_content()
             
-        # print(right_litera, right_text)
+            if right_litera is not None:
+                right_litera = right_litera.strip()   
+            
+            if right_text is not None:
+                right_text = right_text.strip()
+            
+        except Error as exp:
+            service.logging(f'Не удалось найти вариант ответа в правой части', path_log_file)
         
     # print(raw_text_question)
     # print(text_answers)

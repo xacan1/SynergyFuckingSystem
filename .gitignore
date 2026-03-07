@@ -2,6 +2,7 @@
 /build/
 /dist/
 /errors/
+/htmls/
 /.vscode/
 **/__pycache__/
 **/photos/

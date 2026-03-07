@@ -8,7 +8,7 @@ import time
 import proxies
 import service
 import ai_search
-import search_answers_without_id as sawi
+# import search_answers_without_id as sawi
 
 
 # словарь-соответствие между обозначанием типа ответов на странице и в БД questionType
@@ -39,7 +39,7 @@ class SynergyParser:
                                                                '--start-maximized'],
                                                            ignore_default_args=[
                                                                '--enable-automation'],
-                                                           proxy=proxies.get_proxy_settings(self.proxy_info)) # type: ignore
+                                                           proxy=proxies.get_proxy_settings(self.proxy_info))  # type: ignore
         self.__context = self.__browser.new_context(user_agent=self.ua.random,
                                                     no_viewport=True)
         self.__context.grant_permissions(permissions=['camera'])
@@ -53,6 +53,7 @@ class SynergyParser:
         self.__question_block_id = 0
         self.__count_unfound_answers = 0
         self.__path_log_file = ''
+        self.__path_htmls = ''
         self.__complete_test = False
         self.__manual_presskey = False
         self.__pid = service.get_active_window_pid()
@@ -147,6 +148,7 @@ class SynergyParser:
                 self.__question_block_id = 0
                 self.__count_unfound_answers = 0
                 self.__path_log_file = ''
+                self.__path_htmls = ''
                 discipline = self.__get_name_discipline()
 
                 if discipline:
@@ -192,8 +194,11 @@ class SynergyParser:
             print('<<<<< Обнаружен вопрос >>>>>')
 
         if not self.__path_log_file:
-            self.__path_log_file, error_msg = service.create_log_file(self.page,
-                                                                      self.__current_discipline)
+            self.__path_log_file, self.__path_htmls, error_msg = service.create_log_file(self.page,
+                                                                                         self.__current_discipline)
+            
+            if config.DEBUG:
+                service.create_htmls_folder(self.__path_htmls)
 
         if error_msg:
             return error_msg
@@ -217,6 +222,9 @@ class SynergyParser:
             self.__pause_for_answer()
             error_msg = self.__skip_question('Искусственный пропуск вопроса')
             return error_msg
+
+        # if config.DEBUG:
+        #     service.save_html(self.page.content(), self.__path_htmls)
 
         variants_question, raw_text_question, error_msg = self.__get_question()
 
@@ -374,7 +382,7 @@ class SynergyParser:
             error_msg = f'Не удалось найти форму с вопросом: {exp}'
             result = (type_question, error_msg)
             return result
-       
+
         for key, value in self.__matching_question_types.items():
             if form.get_by_text(key).count() == 1:
                 type_question = value
@@ -394,56 +402,28 @@ class SynergyParser:
         answer = ''
 
         if type_question == 'textEntry':
-            need_skip, need_reload, error_msg, answer = sawi.input_text_answer(self.page,
-                                                                               raw_text_question,
-                                                                               type_question,
-                                                                               self.__path_log_file)
+            need_skip, need_reload, error_msg, answer = self.__input_text_answer(variants_question,
+                                                                                 type_question,
+                                                                                 raw_text_question)
 
-            if not answer:
-                need_skip, need_reload, error_msg, answer = self.__input_text_answer(variants_question,
+        elif type_question == 'choice':
+            need_skip, need_reload, error_msg, answer = self.__choose_correct_answer(variants_question,
                                                                                      type_question,
                                                                                      raw_text_question)
 
-        elif type_question == 'choice':
-            need_skip, need_reload, error_msg, answer = sawi.choose_correct_answer(self.page,
-                                                                                   raw_text_question,
-                                                                                   type_question,
-                                                                                   self.__path_log_file)
-
-            if not answer:
-                need_skip, need_reload, error_msg, answer = self.__choose_correct_answer(variants_question,
-                                                                                         type_question,
-                                                                                         raw_text_question)
-
         elif type_question == 'choiceMultiple':
-            need_skip, need_reload, error_msg, answer = sawi.choose_multiple_answers(self.page,
-                                                                                     raw_text_question,
-                                                                                     type_question,
-                                                                                     self.__path_log_file)
-            
-            if not answer:
-                need_skip, need_reload, error_msg, answer = self.__choose_multiple_answers(variants_question,
-                                                                                           type_question,
-                                                                                           raw_text_question)
-            else:
-                service.logging(f'Найден ответ в базе без ID.', self.__path_log_file)
+            need_skip, need_reload, error_msg, answer = self.__choose_multiple_answers(variants_question,
+                                                                                       type_question,
+                                                                                       raw_text_question)
 
         elif type_question == 'order':
             need_skip, need_reload, error_msg, answer = self.__sorting_answers(variants_question,
                                                                                type_question,
                                                                                raw_text_question)
         elif type_question == 'match':
-            need_skip, need_reload, error_msg, answer = sawi.check_matching_answers(self.page,
-                                                                                    raw_text_question,
-                                                                                    type_question,
-                                                                                    self.__path_log_file)
-
-            if not answer:
-                need_skip, need_reload, error_msg, answer = self.__matching_answers(variants_question,
-                                                                                    type_question,
-                                                                                    raw_text_question)
-            else:
-                service.logging(f'Найден ответ в базе без ID.', self.__path_log_file)
+            need_skip, need_reload, error_msg, answer = self.__matching_answers(variants_question,
+                                                                                type_question,
+                                                                                raw_text_question)
 
         elif type_question == 'matchMultiple':
             need_skip, need_reload, error_msg, answer = self.__matching_multiple_answers(variants_question,
@@ -547,9 +527,6 @@ class SynergyParser:
             print(
                 f'Найденный id ответа: {id_answer}\nНайденный id вопроса: {id_question}')
 
-        if self.__only_ai_search and self.__use_ai:
-            id_answer = ''
-
         if not id_answer and not self.__use_ai:
             error_msg = 'Не найден текстовый ответ при выключенном поиске AI'
             need_skip = True
@@ -585,6 +562,15 @@ class SynergyParser:
                 if config.DEBUG:
                     print(f'Ответ AI:\n{text_answer}')
 
+            question_answer = {
+                'questionBlock': self.__current_discipline,
+                'question': raw_text_question,
+                'questionType': type_question,
+                'correctResponse': text_answer,
+                'created': datetime.now().date(),
+            }
+            self.__questions_answers.append(question_answer)
+
         if not error_msg and not text_answer:
             error_msg = 'Не найден текстовый ответ, хотя ID ответа было получено'
             need_skip = True
@@ -596,16 +582,6 @@ class SynergyParser:
             need_reload = False
             self.__count_unfound_answers += 1
             return need_skip, need_reload, error_msg, answer
-
-        if self.__use_ai:
-            question_answer = {
-                'questionBlock': self.__current_discipline,
-                'question': raw_text_question,
-                'questionType': type_question,
-                'correctResponse': text_answer,
-                'created': datetime.now().date(),
-            }
-            self.__questions_answers.append(question_answer)
 
         clear_text_answer = self.__spellchecking(text_answer)
         textarea = self.page.locator('textarea[id=answers-]')
@@ -687,13 +663,7 @@ class SynergyParser:
                 id_answer, id_question = self.__find_answer_for_choice(variants_question,
                                                                        type_question)
 
-        if config.DEBUG:
-            print(
-                f'Найденный id ответа: {id_answer}\nНайденный id вопроса: {id_question}')
-
         have_image = ai_search.have_image_in_question(self.page)
-        # raw_text_question = ai_search.get_text_answer(self.page,
-        #                                               self.__name_ai)
 
         if not id_answer and not self.__use_ai:
             error_msg = 'Не найден единственный правильный ответ при выключенном AI!'
@@ -738,15 +708,14 @@ class SynergyParser:
                     id_answer += key
                     break
 
-        if self.__use_ai:
-            question_answer = {
-                'questionBlock': self.__current_discipline,
-                'question': raw_text_question,
-                'questionType': type_question,
-                'correctResponse': id_answer,
-                'created': datetime.now().date(),
-            }
-            self.__questions_answers.append(question_answer)
+                question_answer = {
+                    'questionBlock': self.__current_discipline,
+                    'question': raw_text_question,
+                    'questionType': type_question,
+                    'correctResponse': id_answer,
+                    'created': datetime.now().date(),
+                }
+                self.__questions_answers.append(question_answer)
 
         radio_button = self.page.locator(f'input[value="{id_answer}"]')
         label = self.page.locator(f'label[for="answers-{id_answer}"]')
@@ -868,13 +837,6 @@ class SynergyParser:
                 id_answers, id_question = self.__find_answer_for_choose_multiple(variants_question,
                                                                                  type_question)
 
-        if config.DEBUG:
-            print(
-                f'Найденные id для ответа: {id_answers}\nНайденный id вопроса: {id_question}')
-
-        if self.__only_ai_search and self.__use_ai:
-            id_answers = ''
-
         if not id_answers and not self.__use_ai:
             error_msg = 'Не найден набор правильных ответов при выключенном AI!'
             need_skip = True
@@ -895,12 +857,12 @@ class SynergyParser:
             #                                               self.__name_ai)
             variants_answers = ai_search.get_variants_answers_for_choice(self.page,
                                                                          True)
-            ai_answer, error_msg = ai_search.ai_search(
-                f'{raw_text_question} варианты ответа: {variants_answers} Оставь в JSON только верные элементы',
-                self.__name_ai)
+            ai_question = f'{raw_text_question} варианты ответа: {variants_answers} Оставь в JSON только верные элементы'
+            ai_answer, error_msg = ai_search.ai_search(ai_question,
+                                                       self.__name_ai)
 
             if config.DEBUG:
-                print(f'Ответ AI:\n{ai_answer}')
+                print(f'Вопрос AI:\n{ai_question}\nОтвет AI:\n{ai_answer}')
 
             ai_dict, need_skip, need_reload, error_msg = service.load_json(
                 ai_answer)
@@ -933,7 +895,7 @@ class SynergyParser:
             except TimeoutError:
                 error_msg = 'Не найдена галочка в ответе'
                 need_skip = False
-                need_reload = False
+                need_reload = True
                 return need_skip, need_reload, error_msg, id_answers
 
         return need_skip, need_reload, error_msg, id_answers
@@ -1010,15 +972,8 @@ class SynergyParser:
                                                                                type_question,
                                                                                current_id_answers)
 
-        if config.DEBUG:
-            print(
-                f'Найденные id ответа: {correct_id_answers}\nНайденный id вопроса: {id_question}')
-
         # в любом случае считаем порядок по умолчанию верным для сортировки
         correct_id_answers = current_id_answers
-
-        # if self.__only_ai_search and self.__use_ai:
-        #     correct_id_answers = []
 
         if current_id_answers != correct_id_answers and not self.__use_ai:
             error_msg = 'Вопрос пропущен из-за неверного порядка!'
@@ -1133,10 +1088,6 @@ class SynergyParser:
                 correct_response, id_question = self.__find_answer_for_matching(variants_question,
                                                                                 type_question)
 
-        if config.DEBUG:
-            print(
-                f'Найденный ответ: {correct_response}\nНайденный id вопроса: {id_question}')
-
         # Соберем ответ по умолчанию в порядке букв как на странице(скорее всего это верный порядок) ***
         default_response = ''
         bottom_side = self.page.locator('div.docBottom div.ui-draggable').all()
@@ -1150,17 +1101,12 @@ class SynergyParser:
         default_response = default_response[0:-1]
         # **********************************************************************************************
 
-        if self.__only_ai_search and self.__use_ai:
-            correct_response = ''
-
         if not correct_response and not self.__use_ai:
             service.logging(
                 'Не найден ответ для сопоставления при выключенном AI. Будет применен ответ по умолчанию.', self.__path_log_file)
             correct_response = default_response
         elif not correct_response and self.__use_ai:
             have_image = ai_search.have_image_in_question(self.page)
-            # raw_text_question = ai_search.get_text_answer(self.page,
-            #                                               self.__name_ai)
 
             if have_image:
                 service.logging(
@@ -1280,13 +1226,6 @@ class SynergyParser:
                 correct_response, id_question = self.__find_answer_for_sequence(variants_question,
                                                                                 type_question)
 
-        if config.DEBUG:
-            print(
-                f'Найденный ответ: {correct_response}\nНайденный id вопроса: {id_question}')
-
-        if self.__only_ai_search and self.__use_ai:
-            correct_response = ''
-
         if not correct_response and not self.__use_ai:
             error_msg = 'Не найден ответ для сложной сортировки. При выключенном AI'
             need_skip = True
@@ -1303,8 +1242,6 @@ class SynergyParser:
                 self.__count_unfound_answers += 1
                 return need_skip, need_reload, error_msg, correct_response
 
-            # raw_text_question = ai_search.get_text_answer(self.page,
-            #                                               self.__name_ai)
             variants_answers = ai_search.get_variants_answers_for_sort_sequence(
                 self.page)
             ai_answer, error_msg = ai_search.ai_search(
@@ -1427,10 +1364,6 @@ class SynergyParser:
                 correct_response, id_question = self.__find_answer_for_matchmultiple(variants_question,
                                                                                      type_question)
 
-        if config.DEBUG:
-            print(
-                f'Найденный ответ: {correct_response}\nНайденный id вопроса: {id_question}')
-
         # Соберем ответ по умолчанию в порядке букв как на странице(скорее всего это верный порядок) ***
         bottom_side = self.page.locator('#answerChoises li').all()
         count_bottom_side = len(bottom_side)
@@ -1458,17 +1391,12 @@ class SynergyParser:
         # 6Oj9|8GZi;Bqng;eO5U,d1jK|2SBf;B2xf;jf6o,wx9r|ZqR2;eUy3;gmkq;iNmW
         # **********************************************************************************************
 
-        if self.__only_ai_search and self.__use_ai:
-            correct_response = ''
-
         if not correct_response and not self.__use_ai:
             service.logging(
                 'Не найден ответ для множественного сопоставления при выключенном AI. Будет применен ответ по умолчанию.', self.__path_log_file)
             correct_response = default_response
         if not correct_response and self.__use_ai:
             have_image = ai_search.have_image_in_question(self.page)
-            # raw_text_question = ai_search.get_text_answer(self.page,
-            #                                               self.__name_ai)
 
             if have_image:
                 service.logging(
@@ -1762,6 +1690,7 @@ class SynergyParser:
             self.__question_block_id = 0
             self.__complete_test = False
             self.__path_log_file = ''
+            self.__path_htmls = ''
             self.__test_info = {}
             finish = False
             self.__alert(error_msg)
@@ -1777,6 +1706,7 @@ class SynergyParser:
             error_msg = 'Не удалось найти кнопку завершения теста за таймаут'
             service.logging(error_msg, self.__path_log_file)
             self.__path_log_file = ''
+            self.__path_htmls = ''
             finish = True
             result = (finish, error_msg)
             return result
@@ -1784,6 +1714,7 @@ class SynergyParser:
             error_msg = 'Не удалось найти кнопку завершения теста'
             service.logging(error_msg, self.__path_log_file)
             self.__path_log_file = ''
+            self.__path_htmls = ''
             finish = True
             result = (finish, error_msg)
             return result
@@ -1794,6 +1725,7 @@ class SynergyParser:
         service.logging('<<<<< Тест успешно завершен! >>>>>',
                         self.__path_log_file)
         self.__path_log_file = ''
+        self.__path_htmls = ''
         finish = True
         # self.__questions_answers.clear()
         result = (finish, error_msg)

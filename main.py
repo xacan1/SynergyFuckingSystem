@@ -5,6 +5,7 @@ import model
 # pyinstaller -F -w --collect-datas=fake_useragent --icon=AvaHack.ico main.py
 # $env:PLAYWRIGHT_BROWSERS_PATH="0"
 
+
 def main() -> None:
     model.create_proxies_db()
     model.create_ai_answers_db()

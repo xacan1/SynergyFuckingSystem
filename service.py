@@ -144,7 +144,7 @@ def get_access() -> bool:
 
 
 # Получает ответ от AI в виде словаря
-def load_json(s: str) -> tuple[dict[str,str], bool, bool, str]:
+def load_json(s: str) -> tuple[dict[str, str], bool, bool, str]:
     error_msg = ''
     need_skip = False
     need_reload = False
@@ -199,7 +199,7 @@ def delete_wrong_symbols(file_name: str) -> str:
     return file_name.translate(table)
 
 
-def create_log_file(page: Page, discipline: str) -> tuple[str, str]:
+def create_log_file(page: Page, discipline: str) -> tuple[str, str, str]:
     path_log_file = ''
     error_msg = ''
     log_dir = 'errors'
@@ -209,14 +209,17 @@ def create_log_file(page: Page, discipline: str) -> tuple[str, str]:
         student = page.locator('#user-profile').get_attribute('title')
     except TimeoutError:
         error_msg = 'Не удалось определить имя студента!'
-        return path_log_file, error_msg
+        return path_log_file, '', error_msg
     except Error:
         error_msg = 'Не удалось определить имя студента!'
-        return path_log_file, error_msg
+        return path_log_file, '', error_msg
 
     student = student.strip()  # type: ignore
     found_files = sorted(Path(log_dir).glob(
         f'{student}-{discipline}*.log'))
+
+    path_htmls = f'htmls/{student}-{discipline}'
+
     name_log_file = ''
 
     if found_files:
@@ -237,7 +240,21 @@ def create_log_file(page: Page, discipline: str) -> tuple[str, str]:
         f = open(path_log_file, 'w+', encoding='utf-8')
         f.close()
 
-    return path_log_file, error_msg
+    return path_log_file, path_htmls, error_msg
+
+
+def create_htmls_folder(name_htmls: str) -> str:
+    html_dir = f'htmls/{name_htmls}'
+    Path(html_dir).mkdir(parents=True, exist_ok=True)
+    return html_dir
+
+
+def save_html(content: str, path_htmls: str) -> None:
+    found_files = sorted(Path(path_htmls).glob('*.htm'))
+    number_file = len(found_files) + 1
+
+    with open(f'{path_htmls}/{number_file}.htm', 'w', encoding='utf-8') as f:
+        f.write(content)
 
 
 def logging(line: str, path_log_file: str) -> None:

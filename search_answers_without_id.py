@@ -3,6 +3,7 @@ import sawi_model
 import service
 import config
 
+# НЕ ИСПОЛЬЗУЕТСЯ
 
 def input_text_answer(page: Page, raw_text_question: str, type_question: str, path_log_file: str) -> tuple[bool, bool, str, str]:
     error_msg = ''

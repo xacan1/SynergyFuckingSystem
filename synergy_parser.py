@@ -180,9 +180,7 @@ class SynergyParser:
             error_msg = 'Неизвестная ошибка внутри __begin_autotest ...'
 
         if error_msg:
-            if config.DEBUG:
-                print(error_msg)
-
+            self.__count_unfound_answers += 1
             self.__reload(error_msg)
 
     # начинаем автотест на стандартной странице теста
@@ -728,7 +726,8 @@ class SynergyParser:
 
             # radio_button.click(delay=200)
             radio_button.focus()
-            radio_button.dispatch_event('click')
+            radio_button.check()
+            # radio_button.dispatch_event('click')
         except TimeoutError:
             # self.__reload('Не найдена галочка в ответе')
             error_msg = 'Не найдена галочка в ответе'
@@ -891,7 +890,8 @@ class SynergyParser:
 
             try:
                 radio_button.focus()
-                radio_button.dispatch_event('click')
+                radio_button.check()
+                # radio_button.dispatch_event('click')
             except TimeoutError:
                 error_msg = 'Не найдена галочка в ответе'
                 need_skip = False
@@ -1604,10 +1604,7 @@ class SynergyParser:
             return error_msg
 
         self.__complete_test = (current_question == total_questions)
-
-        if config.DEBUG:
-            print(
-                f'Вопрос №: {current_question} из {total_questions}. Тест завершен: {self.__complete_test}')
+        service.logging(f'Вопрос №: {current_question} из {total_questions}. Тест завершен: {self.__complete_test}', self.__path_log_file)
 
         return error_msg
 

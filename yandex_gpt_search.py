@@ -11,7 +11,7 @@ def ai_search(question: str) -> str:
 
     if result:
         ai_answer = result[0].text
-        ai_answer = ai_answer.replace('`', '')
+        ai_answer = ai_answer.replace('`', '').replace(' ', '')
 
     return ai_answer.strip()
 

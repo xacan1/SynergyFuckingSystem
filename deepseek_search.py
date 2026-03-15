@@ -21,7 +21,7 @@ def ai_search(question: str, name_ai: str) -> str:
     if ai_answer is None:
         ai_answer = ''
     else:
-        ai_answer = ai_answer.strip().replace('`', '').replace('json', '')
+        ai_answer = ai_answer.strip().replace('`', '').replace('json', '').replace(' ', '')
 
     return ai_answer.strip()
 

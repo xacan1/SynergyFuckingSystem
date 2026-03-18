@@ -180,7 +180,6 @@ class SynergyParser:
             error_msg = 'Неизвестная ошибка внутри __begin_autotest ...'
 
         if error_msg:
-            self.__count_unfound_answers += 1
             self.__reload(error_msg)
 
     # начинаем автотест на стандартной странице теста
@@ -194,7 +193,7 @@ class SynergyParser:
         if not self.__path_log_file:
             self.__path_log_file, self.__path_htmls, error_msg = service.create_log_file(self.page,
                                                                                          self.__current_discipline)
-            
+
             if config.DEBUG:
                 service.create_htmls_folder(self.__path_htmls)
 
@@ -372,7 +371,6 @@ class SynergyParser:
         try:
             form.wait_for()
         except TimeoutError:
-            # self.__reload('Не удалось найти форму с вопросом!')
             error_msg = 'Не удалось найти форму с вопросом!'
             result = (type_question, error_msg)
             return result
@@ -475,7 +473,7 @@ class SynergyParser:
             answer = answers[0]
             id_answer = answer[0]
             id_question = answer[1]
-            self.__question_block_id = answer[2]
+            self.__question_block_id = int(answer[2])
             result = (id_answer, id_question)
         elif len(answers) > 1:
             answer = answers[0]
@@ -493,6 +491,12 @@ class SynergyParser:
 
         for variant in variants_question:
             answers = self.__find_answer_by_text(variant, type_question)
+            answers = answers[0:config.MAX_COUNT_ANSWERS]
+
+            if config.DEBUG:
+                print(
+                    f'Нашел в БД {len(answers)} вариантов по фразе {variant}')
+
             id_answer, id_question = self.__check_text_answer(answers)
 
             if id_answer:
@@ -516,7 +520,7 @@ class SynergyParser:
             id_answer, id_question = self.__find_answer_for_textentry(variants_question,
                                                                       type_question)
 
-            if not id_answer:
+            if not id_answer and self.__question_block_id > 0:
                 self.__question_block_id = 0
                 id_answer, id_question = self.__find_answer_for_textentry(variants_question,
                                                                           type_question)
@@ -621,7 +625,7 @@ class SynergyParser:
                 id_question = answer[1]
 
                 if self.page.locator(f'input[value="{id_answer}"]').count() > 0:
-                    self.__question_block_id = answer[2]
+                    self.__question_block_id = int(answer[2])
                     result = (id_answer, id_question)
                     break
 
@@ -633,6 +637,12 @@ class SynergyParser:
 
         for variant in variants_question:
             answers = self.__find_answer_by_text(variant, type_question)
+            answers = answers[0:config.MAX_COUNT_ANSWERS]
+
+            if config.DEBUG:
+                print(
+                    f'Нашел в БД {len(answers)} вариантов по фразе {variant}')
+
             id_answer, id_question = self.__check_choose_correct_answer(
                 answers)
 
@@ -656,7 +666,7 @@ class SynergyParser:
             id_answer, id_question = self.__find_answer_for_choice(variants_question,
                                                                    type_question)
 
-            if not id_answer:
+            if not id_answer and self.__question_block_id > 0:
                 self.__question_block_id = 0
                 id_answer, id_question = self.__find_answer_for_choice(variants_question,
                                                                        type_question)
@@ -729,7 +739,6 @@ class SynergyParser:
             radio_button.check()
             # radio_button.dispatch_event('click')
         except TimeoutError:
-            # self.__reload('Не найдена галочка в ответе')
             error_msg = 'Не найдена галочка в ответе'
             need_skip = False
             need_reload = True
@@ -797,7 +806,7 @@ class SynergyParser:
                         break
 
                 if found:
-                    self.__question_block_id = answer[2]
+                    self.__question_block_id = int(answer[2])
                     result = (id_answers, id_question)
                     break
 
@@ -809,6 +818,12 @@ class SynergyParser:
 
         for variant in variants_question:
             answers = self.__find_answer_by_text(variant, type_question)
+            answers = answers[0:config.MAX_COUNT_ANSWERS]
+
+            if config.DEBUG:
+                print(
+                    f'Нашел в БД {len(answers)} вариантов по фразе {variant}')
+
             id_answers, id_question = self.__check_multiple_answers(answers)
 
             if id_answers:
@@ -831,7 +846,7 @@ class SynergyParser:
             id_answers, id_question = self.__find_answer_for_choose_multiple(variants_question,
                                                                              type_question)
 
-            if not id_answers:
+            if not id_answers and self.__question_block_id > 0:
                 self.__question_block_id = 0
                 id_answers, id_question = self.__find_answer_for_choose_multiple(variants_question,
                                                                                  type_question)
@@ -917,7 +932,7 @@ class SynergyParser:
                         break
 
                 if found:
-                    self.__question_block_id = answer[2]
+                    self.__question_block_id = int(answer[2])
                     result = (id_answers, id_question)
                     break
 
@@ -929,6 +944,12 @@ class SynergyParser:
 
         for variant in variants_question:
             answers = self.__find_answer_by_text(variant, type_question)
+            answers = answers[0:config.MAX_COUNT_ANSWERS]
+
+            if config.DEBUG:
+                print(
+                    f'Нашел в БД {len(answers)} вариантов по фразе {variant}')
+
             correct_response, id_question = self.__check_sorting_answers(answers,  # type: ignore
                                                                          current_id_answers)
             correct_id_answers = correct_response.split(',')
@@ -966,7 +987,7 @@ class SynergyParser:
                                                                            type_question,
                                                                            current_id_answers)
 
-            if current_id_answers != correct_id_answers:
+            if current_id_answers != correct_id_answers and self.__question_block_id > 0:
                 self.__question_block_id = 0
                 correct_id_answers, id_question = self.__find_answer_for_order(variants_question,
                                                                                type_question,
@@ -1041,7 +1062,7 @@ class SynergyParser:
                         break
 
                 if found:
-                    self.__question_block_id = answer[2]
+                    self.__question_block_id = int(answer[2])
                     result = (correct_response, id_question)
                     break
 
@@ -1053,6 +1074,12 @@ class SynergyParser:
 
         for variant in variants_question:
             answers = self.__find_answer_by_text(variant, type_question)
+            answers = answers[0:config.MAX_COUNT_ANSWERS]
+
+            if config.DEBUG:
+                print(
+                    f'Нашел в БД {len(answers)} вариантов по фразе {variant}')
+
             correct_response, id_question = self.__check_matching_answers(
                 answers)
 
@@ -1083,7 +1110,7 @@ class SynergyParser:
             correct_response, id_question = self.__find_answer_for_matching(variants_question,
                                                                             type_question)
 
-            if not correct_response:
+            if not correct_response and self.__question_block_id > 0:
                 self.__question_block_id = 0
                 correct_response, id_question = self.__find_answer_for_matching(variants_question,
                                                                                 type_question)
@@ -1186,7 +1213,7 @@ class SynergyParser:
                         break
 
                 if found:
-                    self.__question_block_id = answer[2]
+                    self.__question_block_id = int(answer[2])
                     result = (id_answers, id_question)
                     break
 
@@ -1198,6 +1225,12 @@ class SynergyParser:
 
         for variant in variants_question:
             answers = self.__find_answer_by_text(variant, type_question)
+            answers = answers[0:config.MAX_COUNT_ANSWERS]
+
+            if config.DEBUG:
+                print(
+                    f'Нашел в БД {len(answers)} вариантов по фразе {variant}')
+
             id_answers, id_question = self.__check_sequence_answers(
                 answers)  # type: ignore
 
@@ -1221,7 +1254,7 @@ class SynergyParser:
             correct_response, id_question = self.__find_answer_for_sequence(variants_question,
                                                                             type_question)
 
-            if not correct_response:
+            if not correct_response and self.__question_block_id > 0:
                 self.__question_block_id = 0
                 correct_response, id_question = self.__find_answer_for_sequence(variants_question,
                                                                                 type_question)
@@ -1315,7 +1348,7 @@ class SynergyParser:
                         break
 
                 if found:
-                    self.__question_block_id = answer[2]
+                    self.__question_block_id = int(answer[2])
                     result = (pair_id_answers, id_question)
                     break
 
@@ -1327,6 +1360,12 @@ class SynergyParser:
 
         for variant in variants_question:
             answers = self.__find_answer_by_text(variant, type_question)
+            answers = answers[0:config.MAX_COUNT_ANSWERS]
+
+            if config.DEBUG:
+                print(
+                    f'Нашел в БД {len(answers)} вариантов по фразе {variant}')
+
             correct_response, id_question = self.__check_matching_multiple_answers(
                 answers)
 
@@ -1359,7 +1398,7 @@ class SynergyParser:
             correct_response, id_question = self.__find_answer_for_matchmultiple(variants_question,
                                                                                  type_question)
 
-            if not correct_response:
+            if not correct_response and self.__question_block_id > 0:
                 self.__question_block_id = 0
                 correct_response, id_question = self.__find_answer_for_matchmultiple(variants_question,
                                                                                      type_question)
@@ -1604,7 +1643,8 @@ class SynergyParser:
             return error_msg
 
         self.__complete_test = (current_question == total_questions)
-        service.logging(f'Вопрос №: {current_question} из {total_questions}. Тест завершен: {self.__complete_test}', self.__path_log_file)
+        service.logging(
+            f'Вопрос №: {current_question} из {total_questions}. Тест завершен: {self.__complete_test}', self.__path_log_file)
 
         return error_msg
 
@@ -1667,7 +1707,26 @@ class SynergyParser:
             return
 
     def __reload(self, message: str = '') -> None:
-        self.page.reload()
+        list_url = self.page.url.split('/')
+
+        if len(list_url) < 9:
+            service.logging(
+                'Количество параметров в URL меньше обычного, делаю стандартное обновление страницы', self.__path_log_file)
+            self.page.reload()
+            return
+
+        current_question = self.__test_info.get('item', -1)
+
+        if current_question < 1:
+            service.logging(
+                'Не удалось получить номер текущего вопроса, делаю стандартное обновление страницы', self.__path_log_file)
+            self.page.reload()
+            return
+
+        list_url[5] = '5'
+        list_url[6] = str(current_question - 1)
+        current_url = '/'.join(list_url)
+        self.page.goto(current_url)
         service.logging(f'{message}; Обновляем страницу', self.__path_log_file)
 
     def __finish_test(self) -> tuple[bool, str]:
@@ -1680,11 +1739,11 @@ class SynergyParser:
 
         questions_count = self.__test_info.get('questionsCount', 0)
         questions_unanswered = self.__test_info.get('questionsUnanswered', 0)
+        self.__question_block_id = 0
 
         if questions_unanswered > int(questions_count / 2):
             error_msg = 'Много неотвеченных вопросов, тест не был сдан!'
             service.logging(error_msg, self.__path_log_file)
-            self.__question_block_id = 0
             self.__complete_test = False
             self.__path_log_file = ''
             self.__path_htmls = ''
@@ -1716,7 +1775,6 @@ class SynergyParser:
             result = (finish, error_msg)
             return result
 
-        self.__question_block_id = 0
         self.__complete_test = False
         self.__test_info = {}
         service.logging('<<<<< Тест успешно завершен! >>>>>',

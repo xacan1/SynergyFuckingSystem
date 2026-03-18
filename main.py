@@ -6,10 +6,11 @@ import model
 # $env:PLAYWRIGHT_BROWSERS_PATH="0"
 
 
+
 def main() -> None:
     model.create_proxies_db()
     model.create_ai_answers_db()
-    sp = SynergyParser(config.START_URL)
+    sp = SynergyParser(config.TEST_URL)
 
     if not get_access():
         return

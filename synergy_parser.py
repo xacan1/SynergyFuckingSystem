@@ -39,7 +39,7 @@ class SynergyParser:
                                                                '--start-maximized'],
                                                            ignore_default_args=[
                                                                '--enable-automation'],
-                                                           proxy=proxies.get_proxy_settings(self.proxy_info))  # type: ignore
+                                                           proxy=proxies.get_proxy_settings(self.proxy_info)) # type: ignore
         self.__context = self.__browser.new_context(user_agent=self.ua.random,
                                                     no_viewport=True)
         self.__context.grant_permissions(permissions=['camera'])
@@ -142,22 +142,29 @@ class SynergyParser:
 
         try:
             # Если найдена кнопка идентификации теста, значит мы начинаем новый тест и нужно сбросить старые значения объекта парсера
-            # не зависимо завершили мы прошлый тест или нет
+            # независимо завершили мы прошлый тест или нет
             if self.page.locator('#cvsBtn').count() > 0 or self.page.locator('#startPlayerBtn').count() > 0:
                 self.__test_info = {}
                 self.__question_block_id = 0
                 self.__count_unfound_answers = 0
-                self.__path_log_file = ''
                 self.__path_htmls = ''
                 discipline = self.__get_name_discipline()
 
                 if discipline:
                     self.__current_discipline = discipline
 
+                # self.__add_questions_answers_for_ai('текст', 'choice', 'TEST')
+
                 if self.__use_ai and self.__questions_answers:
+                    self.__pause(1000)
                     service.check_and_save_result_test(self.page,
-                                                       self.__questions_answers)
+                                                       self.__questions_answers,
+                                                       self.__path_log_file)
+                    # print('Таблица ответов:')
+                    # print(self.__questions_answers)
                     self.__questions_answers.clear()
+
+                self.__path_log_file = ''
 
                 if config.DEBUG:
                     print(
@@ -491,12 +498,6 @@ class SynergyParser:
 
         for variant in variants_question:
             answers = self.__find_answer_by_text(variant, type_question)
-            answers = answers[0:config.MAX_COUNT_ANSWERS]
-
-            if config.DEBUG:
-                print(
-                    f'Нашел в БД {len(answers)} вариантов по фразе {variant}')
-
             id_answer, id_question = self.__check_text_answer(answers)
 
             if id_answer:
@@ -564,14 +565,8 @@ class SynergyParser:
                 if config.DEBUG:
                     print(f'Ответ AI:\n{text_answer}')
 
-            question_answer = {
-                'questionBlock': self.__current_discipline,
-                'question': raw_text_question,
-                'questionType': type_question,
-                'correctResponse': text_answer,
-                'created': datetime.now().date(),
-            }
-            self.__questions_answers.append(question_answer)
+                self.__add_questions_answers_for_ai(
+                    raw_text_question, type_question, id_answer)
 
         if not error_msg and not text_answer:
             error_msg = 'Не найден текстовый ответ, хотя ID ответа было получено'
@@ -690,6 +685,8 @@ class SynergyParser:
                                                                 raw_text_question)
                 service.logging(
                     f'Выбираем случайный ответ: {id_answer}', self.__path_log_file)
+                self.__add_questions_answers_for_ai(
+                    raw_text_question, type_question, id_answer)
 
         elif not id_answer and self.__use_ai and not have_image:
             id_answer = self.__choose_correct_answer_ai(type_question,
@@ -716,14 +713,8 @@ class SynergyParser:
                     id_answer += key
                     break
 
-                question_answer = {
-                    'questionBlock': self.__current_discipline,
-                    'question': raw_text_question,
-                    'questionType': type_question,
-                    'correctResponse': id_answer,
-                    'created': datetime.now().date(),
-                }
-                self.__questions_answers.append(question_answer)
+                self.__add_questions_answers_for_ai(
+                    raw_text_question, type_question, id_answer)
 
         radio_button = self.page.locator(f'input[value="{id_answer}"]')
         label = self.page.locator(f'label[for="answers-{id_answer}"]')
@@ -777,7 +768,8 @@ class SynergyParser:
 
         for radio_button in radio_buttons:
             response = radio_button.get_attribute('value')
-            incorrect_response_id = model.get_incorrect_response_id(response,  # type: ignore
+            response = response if response is not None else ''
+            incorrect_response_id = model.get_incorrect_response_id(response,
                                                                     question_id)
 
             if not incorrect_response_id and response:
@@ -788,8 +780,9 @@ class SynergyParser:
             service.logging(
                 'В переборе choose_correct все ответы не верные. Надо проверить базу AI!', self.__path_log_file)
             found_answer = radio_buttons[0].get_attribute('value')
+            found_answer = found_answer if found_answer is not None else ''
 
-        return found_answer  # type: ignore
+        return found_answer
 
     def __check_multiple_answers(self, answers: list) -> tuple[str, int]:
         result = ('', 0)
@@ -890,15 +883,8 @@ class SynergyParser:
 
             id_answers = id_answers[0:-1]
 
-            question_answer = {
-                'questionBlock': self.__current_discipline,
-                'question': raw_text_question,
-                'questionType': type_question,
-                'correctResponse': id_answers,
-                'created': datetime.now().date(),
-            }
-
-            self.__questions_answers.append(question_answer)
+            self.__add_questions_answers_for_ai(
+                raw_text_question, type_question, id_answers)
 
         for id_answer in id_answers.split(','):
             radio_button = self.page.locator(f'input[value="{id_answer}"]')
@@ -1017,14 +1003,9 @@ class SynergyParser:
             if config.DEBUG:
                 print(f'Ответ AI:\n{ai_answer}')
 
-            question_answer = {
-                'questionBlock': self.__current_discipline,
-                'question': raw_text_question,
-                'questionType': type_question,
-                'correctResponse': ai_answer,
-                'created': datetime.now().date(),
-            }
-            self.__questions_answers.append(question_answer)
+            correct_response = ai_answer
+            self.__add_questions_answers_for_ai(
+                raw_text_question, type_question, correct_response)
             correct_id_answers = ai_answer.split(',')
             correct_response = ai_answer
 
@@ -1157,14 +1138,8 @@ class SynergyParser:
                 else:
                     correct_response = ai_answer
 
-            question_answer = {
-                'questionBlock': self.__current_discipline,
-                'question': raw_text_question,
-                'questionType': type_question,
-                'correctResponse': correct_response,
-                'created': datetime.now().date(),
-            }
-            self.__questions_answers.append(question_answer)
+            self.__add_questions_answers_for_ai(
+                raw_text_question, type_question, correct_response)
 
         pair_id_answers = correct_response.split(',')
 
@@ -1296,14 +1271,8 @@ class SynergyParser:
 
             correct_response = correct_response[0:-1]
 
-            question_answer = {
-                'questionBlock': self.__current_discipline,
-                'question': raw_text_question,
-                'questionType': type_question,
-                'correctResponse': correct_response,
-                'created': datetime.now().date(),
-            }
-            self.__questions_answers.append(question_answer)
+            self.__add_questions_answers_for_ai(
+                raw_text_question, type_question, correct_response)
 
         id_answers = correct_response.split(',')
         block_answers = self.page.locator('ul[id="sequence_answers"]')
@@ -1460,14 +1429,8 @@ class SynergyParser:
                 else:
                     correct_response = ai_answer
 
-            question_answer = {
-                'questionBlock': self.__current_discipline,
-                'question': raw_text_question,
-                'questionType': type_question,
-                'correctResponse': correct_response,
-                'created': datetime.now().date(),
-            }
-            self.__questions_answers.append(question_answer)
+            self.__add_questions_answers_for_ai(
+                raw_text_question, type_question, correct_response)
 
         correct_id_answers = correct_response.split(',')
 
@@ -1706,6 +1669,19 @@ class SynergyParser:
         except Error:
             return
 
+    def __add_questions_answers_for_ai(self, raw_text_question: str, type_question: str, id_answer: str):
+        """
+        Добавляет в список вопросов-ответов случайно отвеченный вопрос или отвеченный ИИ
+        """
+        question_answer = {
+            'questionBlock': self.__current_discipline,
+            'question': raw_text_question,
+            'questionType': type_question,
+            'correctResponse': id_answer,
+            'created': datetime.now().date(),
+        }
+        self.__questions_answers.append(question_answer)
+
     def __reload(self, message: str = '') -> None:
         list_url = self.page.url.split('/')
 
@@ -1779,6 +1755,17 @@ class SynergyParser:
         self.__test_info = {}
         service.logging('<<<<< Тест успешно завершен! >>>>>',
                         self.__path_log_file)
+
+        # if config.DEBUG:
+        #     print(f'Таблица ответов:\n{self.__questions_answers}')
+
+        # if self.__use_ai and self.__questions_answers:
+        #     self.__pause(3000)
+        #     service.check_and_save_result_test(self.page,
+        #                                         self.__questions_answers,
+        #                                         self.__path_log_file)
+        #     self.__questions_answers.clear()
+
         self.__path_log_file = ''
         self.__path_htmls = ''
         finish = True

@@ -23,7 +23,7 @@ def create_proxies_db() -> None:
 
 
 def create_ai_answers_db() -> None:
-    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
+    with sq.connect(f'{PATH_AI_DB}/{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
         cur = con.cursor()
         cur.executescript("""
         CREATE TABLE IF NOT EXISTS question_blocks(
@@ -227,9 +227,8 @@ def save_new_question(con: sq.Connection, question: str, type_question: str, que
     VALUES (?,?,?,?,?)
     """, parameters)
     con.commit()
-    question_id = get_question_id(question,
-                                  type_question,
-                                  question_block_id)
+    question_id = cur.lastrowid
+    question_id = question_id if question_id is not None else 0
 
     return question_id
 
@@ -253,7 +252,7 @@ def clear_response_question(question: str, type_question: str, question_block_id
     if not question_id:
         return
 
-    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
+    with sq.connect(f'{PATH_AI_DB}/{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
         parameters = ('', question_id,)
         cur = con.cursor()
         cur.execute("""
@@ -271,7 +270,7 @@ def clear_response_question(question: str, type_question: str, question_block_id
 def get_correct_answer_info_from_ai_answers(question: str, type_question: str) -> list[tuple[str, int, int]]:
     answer_info = []
 
-    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
+    with sq.connect(f'{PATH_AI_DB}/{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
         parameters = ('', question, type_question,)
         cur = con.cursor()
         cur.execute("""
@@ -290,7 +289,7 @@ def get_correct_answer_info_from_ai_answers(question: str, type_question: str) -
 def get_question_block_id(title_discipline: str) -> int:
     question_block_id = 0
 
-    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
+    with sq.connect(f'{PATH_AI_DB}/{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
         parameters = (title_discipline,)
         cur = con.cursor()
         cur.execute("""
@@ -307,17 +306,23 @@ def get_question_block_id(title_discipline: str) -> int:
     return question_block_id
 
 
-# Ищет id вопроса. ВНИМАНИЕ если correct_response не задан, то ищет только вопрос с отсутствующим ответом
+# ищет id и сам ответ вопроса с пустым или с уже заполненным ответом
 def get_question_id(question: str, type_question: str, question_block_id: int, correct_response: str = '') -> int:
     question_id = 0
 
-    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
+    with sq.connect(f'{PATH_AI_DB}/{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
         cur = con.cursor()
-        parameters = (question, type_question, question_block_id,
-                      correct_response,)
-        cur.execute("""
+        
+        if correct_response:
+            parameters = (question, type_question, question_block_id, correct_response,)
+            add_correct_response = ' AND correctResponse=?'
+        else:
+            parameters = (question, type_question, question_block_id,)
+            add_correct_response = ''
+          
+        cur.execute(f"""
         SELECT questionId FROM question_answers 
-        WHERE question=? AND questionType=? AND questionBlockId=? AND correctResponse=?
+        WHERE question=? AND questionType=? AND questionBlockId=?{add_correct_response}
         """, parameters)
         row = cur.fetchone()
 
@@ -334,21 +339,16 @@ def save_correct_answer(question_answer: dict[str, str]) -> None:
     type_question = question_answer.get('questionType', '')
     correct_response = question_answer.get('correctResponse', '')
     question_block_id = get_question_block_id(title_discipline)
-    # проверим есть ли уже в базе правильный ответ
-    question_id = get_question_id(question,
-                                  type_question,
-                                  question_block_id,
-                                  correct_response)
+    # проверим есть ли уже в базе этот правильный ответ
+    question_id = get_question_id(question, type_question, question_block_id, correct_response)
 
     if question_id:
         return
 
-    # проверим есть ли в базе вопрос с пустым ответом
-    question_id = get_question_id(question,
-                                  type_question,
-                                  question_block_id)
+    # проверим есть ли в базе вопрос с любым (можно и пустым) ответом
+    question_id = get_question_id(question, type_question, question_block_id)
 
-    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
+    with sq.connect(f'{PATH_AI_DB}/{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
         if question_id:
             update_question(con,
                             question,
@@ -366,7 +366,7 @@ def save_correct_answer(question_answer: dict[str, str]) -> None:
 def get_incorrect_response_id(incorrect_response: str, question_id: int) -> int:
     incorrect_response_id = 0
 
-    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
+    with sq.connect(f'{PATH_AI_DB}/{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
         cur = con.cursor()
         parameters = (question_id, incorrect_response,)
         cur.execute("""
@@ -393,11 +393,9 @@ def save_incorrect_answer(question_answer: dict[str, str]) -> None:
     question_block_id = get_question_block_id(title_discipline)
     question = question_answer.get('question', '')
 
-    question_id = get_question_id(question,
-                                  type_question,
-                                  question_block_id)
+    question_id = get_question_id(question, type_question, question_block_id)
 
-    with sq.connect(f'{PATH_AI_DB}\{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
+    with sq.connect(f'{PATH_AI_DB}/{config.DB_AI_ANSWERS_FILE_NAME}') as con:  # type: ignore
         cur = con.cursor()
 
         if not question_id:

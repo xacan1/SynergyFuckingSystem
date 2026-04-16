@@ -279,6 +279,7 @@ def get_check_list_result_test(page: Page) -> dict:
     # page.locator('a[id="statistic"]').wait_for()
     result_links = page.locator('a[id="statistic"]').all()
     last_link = result_links[-1]
+    print(len(result_links))
 
     try:
         last_link.focus()
@@ -300,11 +301,12 @@ def get_check_list_result_test(page: Page) -> dict:
 
 
 # проверка ответов на форме завершения теста и запись результатов в БД
-def check_and_save_result_test(page: Page, questions_answers: list[dict]):
+def check_and_save_result_test(page: Page, questions_answers: list[dict], path_log_file: str):
     check_list = get_check_list_result_test(page)
 
     for question_answer in questions_answers:
         question = question_answer.get('question', '')
+        correct_response = question_answer.get('correctResponse', '')
 
         if not question:
             continue
@@ -314,11 +316,18 @@ def check_and_save_result_test(page: Page, questions_answers: list[dict]):
         if 'не' in result:
             type_question = question_answer.get('questionType', '')
             title_discipline = question_answer.get('questionBlock', '')
-            correct_response = question_answer.get('correctResponse', '')
             question_block_id = model.get_question_block_id(title_discipline)
             # вдруг данный ответ является не верным, а он записан в базе. Очистим его.
-            model.clear_response_question(
-                question, type_question, question_block_id, correct_response)
-            model.save_incorrect_answer(question_answer)
+            model.clear_response_question(question,
+                                          type_question,
+                                          question_block_id,
+                                          correct_response)
+
+            if type_question == 'choice':
+                model.save_incorrect_answer(question_answer)
+                logging(
+                    f'Записан неверный ответ в БД: {question} - {correct_response}', path_log_file)
         else:
             model.save_correct_answer(question_answer)
+            logging(
+                f'Записан верный ответ в БД: {question} - {correct_response}', path_log_file)

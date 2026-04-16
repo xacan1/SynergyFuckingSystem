@@ -7,7 +7,11 @@ MODEL_AI = ai_model.get_ai_model_yandexgpt()
 
 def ai_search(question: str) -> str:
     ai_answer = ''
-    result = MODEL_AI.run(f'{question}')
+    
+    try:
+        result = MODEL_AI.run(f'{question}')
+    except ai_model.AioRpcError:
+        return ai_answer
 
     if result:
         ai_answer = result[0].text

@@ -636,7 +636,7 @@ class SynergyParser:
 
             if config.DEBUG:
                 print(
-                    f'Нашел в БД {len(answers)} вариантов по фразе {variant}')
+                    f'Нашел в БД {len(answers)} вариантов по фразе: {variant}')
 
             id_answer, id_question = self.__check_choose_correct_answer(
                 answers)
@@ -687,6 +687,8 @@ class SynergyParser:
                     f'Выбираем случайный ответ: {id_answer}', self.__path_log_file)
                 self.__add_questions_answers_for_ai(
                     raw_text_question, type_question, id_answer)
+            else:
+                service.logging(f'Ответ из базы AI с картинкой: {id_answer}', self.__path_log_file)
 
         elif not id_answer and self.__use_ai and not have_image:
             id_answer = self.__choose_correct_answer_ai(type_question,
@@ -699,9 +701,7 @@ class SynergyParser:
                     f'{raw_text_question} Варианты ответа в JSON: {variants_answers} В ответе оставь только правильный JSON',
                     self.__name_ai)
 
-                if config.DEBUG:
-                    print(f'Ответ AI:\n{ai_answer}')
-
+                service.logging(f'Ответ AI: {ai_answer}', self.__path_log_file)
                 ai_dict, need_skip, need_reload, error_msg = service.load_json(
                     ai_answer)
 
@@ -715,6 +715,8 @@ class SynergyParser:
 
                 self.__add_questions_answers_for_ai(
                     raw_text_question, type_question, id_answer)
+            else:
+                service.logging(f'Ответ из базы AI: {id_answer}', self.__path_log_file)
 
         radio_button = self.page.locator(f'input[value="{id_answer}"]')
         label = self.page.locator(f'label[for="answers-{id_answer}"]')
@@ -723,14 +725,14 @@ class SynergyParser:
             text_answer = label.text_content()
 
             if text_answer:
-                service.logging(f'Ответ: {text_answer}', self.__path_log_file)
+                service.logging(f'Галочка найдена на странице: {text_answer}', self.__path_log_file)
 
             # radio_button.click(delay=200)
             radio_button.focus()
             radio_button.check()
             # radio_button.dispatch_event('click')
         except TimeoutError:
-            error_msg = 'Не найдена галочка в ответе'
+            error_msg = 'Не найдена галочка для овтета'
             need_skip = False
             need_reload = True
             return need_skip, need_reload, error_msg, id_answer

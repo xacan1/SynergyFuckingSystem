@@ -4,8 +4,8 @@ import model
 
 # pyinstaller -F -w --collect-datas=fake_useragent --icon=AvaHack.ico main.py
 # $env:PLAYWRIGHT_BROWSERS_PATH="0"
-# kalachevg@icloud.com
-# Kalachevmark3005.
+# Murat.karabaliev@mail.ru
+# mwfn3hqT8@!5WRT
 # https://lms.synergy.ru/edudoc/close/29608623/0/2662863
 # https://lms.synergy.ru/edudoc/attempt/29608623/2/2662863
 

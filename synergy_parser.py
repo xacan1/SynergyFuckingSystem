@@ -866,7 +866,7 @@ class SynergyParser:
             #                                               self.__name_ai)
             variants_answers = ai_search.get_variants_answers_for_choice(self.page,
                                                                          True)
-            ai_question = f'{raw_text_question} варианты ответа: {variants_answers} Оставь в JSON только верные элементы'
+            ai_question = f'{raw_text_question} варианты ответа: {variants_answers} Нужно только удалить из JSON неверные элементы без пояснений'
             ai_answer, error_msg = ai_search.ai_search(ai_question,
                                                        self.__name_ai)
 
